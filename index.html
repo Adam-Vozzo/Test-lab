@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#050609">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="description" content="Eight-voice synthesizer with a 3D filter map, step sequencer and adjustable amplitude envelope.">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="./icons/icon-192.png">
+  <link rel="stylesheet" href="./style.css">
+  <link rel="stylesheet" href="./appearance.css">
+  <link rel="stylesheet" href="./shell.css">
+  <link rel="stylesheet" href="./galaxy.css">
+  <title>DUO — Signal</title>
+</head>
+<body>
+  <main id="instrument" class="instrument">
+    <div class="workspace">
+      <section class="signal-column" aria-label="Filter and sequencer">
+        <section class="panel sky-panel">
+          <div class="panel-heading"><span class="panel-detail"><span class="axis-key">X CUTOFF · Y RESONANCE · Z SPREAD</span> <span id="cutoff-readout">2.40k</span> Hz <span class="tiny-line">/</span> <span id="res-readout">1.80</span> Q</span></div>
+          <div id="sky-stage" class="sky-stage" tabindex="0" role="application" aria-label="Three-dimensional filter galaxy. Drag to orbit, Shift-drag to pan, pinch or scroll to zoom. Drag the crosshair or use Tune to position sound in three dimensions."></div>
+          <div class="sky-footer"><span>X <b id="sky-x-value">2.4k Hz</b></span><span>Y <b id="sky-y-value">4.50 Q</b></span><span>Z <b id="sky-z-value">8 ct</b></span></div>
+        </section>
+        <section class="panel sequence-panel">
+          <div class="panel-heading"><h2 data-copy="sequenceTitle">Sequence</h2><div class="inline-tools"><select id="sequence-length" aria-label="Sequence length"><option value="8">8 steps</option><option value="12">12 steps</option><option value="16" selected>16 steps</option></select><button id="randomize-sequence" class="icon-button" aria-label="Generate sequence" title="Generate sequence">⚄</button><button id="clear-sequence" class="icon-button" aria-label="Clear sequence" title="Clear sequence">↺</button></div></div>
+          <div id="sequence-grid" class="sequence-grid" role="group" aria-label="Sixteen-step sequence"><canvas id="sequence-canvas" aria-hidden="true"></canvas><div id="steps" class="steps"></div></div>
+          <div class="sequence-footer"><span id="step-readout">STEP 01 / 16</span><label>SWING <input id="swing" type="range" min="0" max="0.45" step="0.01" value=".1" aria-label="Swing"><output id="swing-value">10%</output></label></div>
+        </section>
+        <section class="panel envelope-panel">
+          <div class="panel-heading"><h2 data-copy="envelopeTitle">Envelope</h2><span class="panel-detail" id="envelope-values">A 40ms <span>R 1.40s</span></span></div>
+          <div id="envelope-stage" class="envelope-stage" role="group" aria-label="Amplitude envelope"><canvas id="envelope-canvas" aria-hidden="true"></canvas><button id="attack-handle" class="envelope-handle" aria-label="Attack. Drag to adjust"></button><button id="release-handle" class="envelope-handle" aria-label="Release. Drag to adjust"></button></div>
+        </section>
+      </section>
+
+      <section class="panel voice-panel" aria-label="Voice ring">
+        <div class="panel-heading"><div class="inline-tools"><span id="current-note" class="note-readout">D3</span><span class="panel-detail">POLY 08</span></div></div>
+        <div id="ring-stage" class="ring-stage" tabindex="0" role="application" aria-label="Touch the ring to play. Drag empty space to orbit; scroll or pinch there to zoom. Move across the ring for pitch and outward for higher octaves. A S D F G H J K play notes. Arrow keys orbit; plus and minus zoom; Home resets the view.">
+          <div id="ring-host" class="ring-host"></div>
+          <div class="ring-corner corner-tl" aria-hidden="true"></div><div class="ring-corner corner-br" aria-hidden="true"></div>
+          <div class="ring-axis" aria-hidden="true"><span>+1.0</span><i></i><span>0.0</span><i></i><span>−1.0</span></div>
+        </div>
+        <div class="waveform-row" role="group" aria-label="Oscillator waveform"><button data-waveform="sawtooth">╱ SAW</button><button data-waveform="triangle">∧ TRI</button><button data-waveform="sine">∿ SINE</button><button data-waveform="square">⊓ PULSE</button><span class="waveform-status" id="voice-count">VOICES 00 / 08</span></div>
+        <div class="sound-controls" id="sound-controls">
+          <label class="sound-control"><span>CUTOFF</span><input id="cutoff" data-sound="cutoff" type="range" min="0" max="1" step=".001" aria-label="Filter cutoff"><output id="cutoff-value">2.4k Hz</output></label>
+          <label class="sound-control"><span>RESO</span><input id="resonance" data-sound="resonance" type="range" min=".1" max="12" step=".01" value="1.8" aria-label="Resonance"><output id="resonance-value">1.80</output></label>
+          <label class="sound-control"><span>ATTACK</span><input id="attack" data-sound="attack" type="range" min=".005" max="2" step=".005" value=".04" aria-label="Attack"><output id="attack-value">40ms</output></label>
+          <label class="sound-control"><span>RELEASE</span><input id="release" data-sound="release" type="range" min=".05" max="5" step=".01" value="1.4" aria-label="Release"><output id="release-value">1.40s</output></label>
+          <label class="sound-control reference-extra"><span>LFO RATE</span><input id="lfoRate" data-sound="lfoRate" type="range" min=".05" max="4" step=".01" value=".35" aria-label="LFO rate"><output id="lfoRate-value">0.35 Hz</output></label>
+          <label class="sound-control reference-extra"><span>LFO DEPTH</span><input id="lfoDepth" data-sound="lfoDepth" type="range" min="0" max="1" step=".01" value=".08" aria-label="LFO depth"><output id="lfoDepth-value">8%</output></label>
+        </div>
+      </section>
+    </div>
+
+    <section id="appearance" class="popover appearance" role="dialog" aria-label="Appearance" hidden></section>
+
+    <footer class="bottom-bar" aria-label="Instrument controls">
+      <div class="footer-transport">
+        <button id="play" class="play-button" aria-label="Play sequence" title="Play / pause · Space"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 4 16 10 7 16Z"/></svg></button>
+        <div id="tempo-control" class="tempo-control">
+          <button id="tempo-trigger" class="tempo-trigger" type="button" role="slider" aria-label="Tempo" aria-orientation="horizontal" aria-valuemin="40" aria-valuemax="220" aria-valuenow="112" aria-valuetext="112 beats per minute" title="Tempo · hold and drag horizontally; arrow keys adjust"><output id="bpm-readout" aria-hidden="true">112</output><span aria-hidden="true">BPM</span></button>
+          <div id="tempo-popup" class="tempo-popup" aria-hidden="true"><div class="tempo-scale"><span>40</span><output id="tempo-popup-value">112 BPM</output><span>220</span></div><input id="bpm" aria-label="Tempo in beats per minute" aria-hidden="true" tabindex="-1" type="range" min="40" max="220" step="1" value="112"></div>
+        </div>
+        <div class="footer-modes" role="group" aria-label="Note modes">
+          <button id="arp" class="footer-tool footer-mode" type="button" aria-label="Arpeggiator" aria-pressed="false" title="Arpeggiator"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2 16h4v-4h4V8h4V4h4"/></svg></button>
+          <button id="hold" class="footer-tool footer-mode" type="button" aria-label="Hold notes" aria-pressed="false" title="Hold notes after release"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 9V6a4 4 0 0 1 8 0v3M5 9h10v8H5zM10 12v2"/></svg></button>
+        </div>
+        <button id="performance-toggle" class="footer-key" aria-label="Key and performance settings" aria-expanded="false" aria-controls="performance-popover" title="Key and performance"><span id="key-readout">D <span>· Dorian</span></span><span id="key-compact" aria-hidden="true">D</span><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 12 4-4 4 4"/></svg></button>
+      </div>
+      <div class="footer-tools">
+        <button id="sound-toggle" class="footer-tool" aria-label="Sound settings" title="Sound" aria-expanded="false" aria-controls="sound-popover"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 12V8m4 8V4m6 12V4m4 8V8"/></svg></button>
+        <button id="appearance-toggle" class="footer-tool" aria-label="Appearance settings" title="Appearance" aria-expanded="false" aria-controls="appearance"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14M7 3v4M13 8v4M6 13v4"/></svg></button>
+      </div>
+    </footer>
+  </main>
+
+  <section id="sound-popover" class="popover sound-popover" role="dialog" aria-label="Sound parameters" hidden><div class="popover-heading"><h2>Sound</h2><button class="icon-button" data-close="sound-popover" aria-label="Close sound settings">×</button></div><div class="patch-row"><select id="sound-preset" aria-label="Sound patch"><option value="warm">Triangle pad</option><option value="glass">Sine bell</option><option value="bass">Saw bass</option><option value="pluck">Triangle pluck</option></select></div><div id="advanced-sound"></div></section>
+
+  <section id="performance-popover" class="popover performance-popover" role="dialog" aria-label="Key and performance" hidden>
+    <div class="popover-heading"><h2>Performance</h2><button class="icon-button" data-close="performance-popover" aria-label="Close performance settings">×</button></div>
+    <div class="key-settings">
+      <label>Root<select id="root" aria-label="Root note"><option value="48">C</option><option value="49">C♯</option><option value="50" selected>D</option><option value="51">E♭</option><option value="52">E</option><option value="53">F</option><option value="54">F♯</option><option value="55">G</option><option value="56">A♭</option><option value="57">A</option><option value="58">B♭</option><option value="59">B</option></select></label>
+      <label>Scale<select id="scale" aria-label="Musical scale"><option value="dorian">Dorian</option><option value="minor">Minor</option><option value="major">Major</option><option value="pentatonic">Pentatonic</option></select></label>
+    </div>
+    <div class="arp-settings"><label>ARP RATE<select id="arp-rate"><option value="4">1/4</option><option value="8" selected>1/8</option><option value="16">1/16</option></select></label><label>DIRECTION<select id="arp-direction"><option value="up">Up</option><option value="down">Down</option><option value="upDown">Up / down</option><option value="random">Random</option></select></label></div>
+  </section>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script src="./vendor/Tone.js"></script>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

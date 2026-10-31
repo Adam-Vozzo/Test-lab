@@ -1,0 +1,110 @@
+/* A compact floating editor: the host places the popover; its center scrolls. */
+#appearance.appearance-editor{display:flex;flex-direction:column;min-width:0;min-height:0;padding:0;color:var(--fg);font-family:var(--ui-font);overflow:hidden;isolation:isolate}
+#appearance .ae-top{display:flex;align-items:center;justify-content:space-between;min-height:45px;padding:6px 16px 2px;flex:none;background:none}
+#appearance .ae-heading{font:600 11px var(--ui-font);letter-spacing:.12em;text-transform:uppercase;color:var(--fg)}
+#appearance .ae-top .icon-button{width:32px;height:32px;font-size:20px}
+#appearance .ae-preset-row{display:flex;align-items:center;gap:10px;padding:4px 16px 12px;flex:none}
+#appearance .ae-look{height:36px;min-width:0;flex:1;border:1px solid color-mix(in srgb,var(--fg) 19%,transparent);border-radius:4px;background-color:color-mix(in srgb,var(--fg) 3%,transparent);padding:0 28px 0 11px;font:11px var(--ui-font);letter-spacing:.02em}
+#appearance select option{background:var(--bg);color:var(--fg)}
+#appearance .ae-toolbar{display:flex;gap:2px;flex:none}
+#appearance .ae-button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:32px;min-height:32px;padding:6px 8px;border:1px solid transparent;border-radius:4px;background:transparent;color:var(--muted);font:10px var(--ui-font);letter-spacing:.02em;white-space:nowrap;cursor:pointer;transition:color .16s,background .16s,border-color .16s,transform .12s}
+#appearance .ae-button:hover{color:var(--fg);background:color-mix(in srgb,var(--fg) 6%,transparent)}
+#appearance .ae-button:active{transform:translateY(1px)}
+#appearance .ae-button:disabled{opacity:.28;cursor:default}
+#appearance .ae-button[aria-pressed=true],#appearance .ae-button.active{color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,transparent);border-color:color-mix(in srgb,var(--accent) 28%,transparent)}
+#appearance .ae-button svg{display:block;width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
+#appearance .ae-surfaces{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0;padding:0 16px;flex:none;border-bottom:1px solid color-mix(in srgb,var(--fg) 10%,transparent)}
+#appearance .ae-surface{position:relative;appearance:none;min-width:0;min-height:36px;padding:6px 4px;border:0;border-radius:0;background:none;color:var(--muted);font:10px var(--ui-font);letter-spacing:.015em;cursor:pointer;transition:color .16s,background .16s}
+#appearance .ae-surface::after{position:absolute;content:"";height:2px;left:8px;right:8px;bottom:-1px;background:var(--accent);opacity:0;transform:scaleX(.65);transition:opacity .16s,transform .16s}
+#appearance .ae-surface:hover{color:var(--fg);background:color-mix(in srgb,var(--fg) 3%,transparent)}
+#appearance .ae-surface[aria-selected=true]{color:var(--accent)}
+#appearance .ae-surface[aria-selected=true]::after{opacity:1;transform:scaleX(1)}
+#appearance .ae-category-name{flex:1;min-width:0;color:var(--fg);font:600 11px var(--ui-font);letter-spacing:.01em}
+#appearance .ae-tabs{display:flex;align-items:center;gap:8px;padding:8px 16px;border-bottom:1px solid color-mix(in srgb,var(--fg) 10%,transparent);flex:none;background:color-mix(in srgb,var(--fg) 2%,transparent)}
+#appearance .ae-group{height:30px;min-width:0;flex:1;padding-left:0;font:600 11px var(--ui-font);letter-spacing:.01em;color:var(--fg)}
+#appearance .ae-group-tools{display:flex;align-items:center;gap:1px;flex:none}
+#appearance .ae-group-tools .ae-button{min-width:30px;min-height:30px;font-size:10px;padding:5px 7px}
+#appearance .ae-scroll{overflow:auto;overscroll-behavior:contain;min-height:0;flex:1 1 auto;scrollbar-width:thin;scrollbar-color:color-mix(in srgb,var(--fg) 22%,transparent) transparent}
+#appearance .ae-scroll::-webkit-scrollbar{width:4px}
+#appearance .ae-scroll::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--fg) 22%,transparent);border-radius:4px}
+#appearance .ae-body{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-content:start;gap:18px 22px;margin:0;padding:19px 18px 21px;overflow:visible;min-height:0;max-height:none}
+#appearance .ae-control{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 8px;min-width:0;align-items:center}
+#appearance .ae-label{font-size:10px;line-height:1.4;color:var(--fg);letter-spacing:.01em}
+#appearance .ae-value{font-size:9px;line-height:1.4;color:var(--muted);text-align:right;font-variant-numeric:tabular-nums}
+#appearance .ae-control input[type=range]{grid-column:1/-1;width:100%;min-width:0;height:23px;margin:0}
+#appearance input[type=range]::-webkit-slider-runnable-track{height:3px;border:0;outline:0;border-radius:2px;background:linear-gradient(to right,var(--accent) var(--range-fill,50%),color-mix(in srgb,var(--fg) 15%,transparent) var(--range-fill,50%));box-shadow:none}
+#appearance input[type=range]::-webkit-slider-thumb{appearance:none;width:10px;height:10px;border-radius:50%;border:1px solid var(--accent);background:var(--bg);margin-top:-3.5px;box-shadow:none}
+#appearance input[type=range]:active::-webkit-slider-thumb{background:var(--accent)}
+#appearance .ae-control select{grid-column:1/-1;width:100%;min-width:0;border:1px solid color-mix(in srgb,var(--fg) 17%,transparent);border-radius:3px;height:31px;padding-left:8px;font-size:10px;letter-spacing:0;background-color:color-mix(in srgb,var(--fg) 2%,transparent)}
+#appearance .ae-colour{grid-template-columns:32px 1fr;gap:2px 10px;min-height:42px}
+#appearance .ae-colour input[type=color]{grid-column:1;grid-row:1/3;appearance:none;width:30px;height:30px;padding:3px;background:transparent;border:1px solid color-mix(in srgb,var(--fg) 22%,transparent);border-radius:50%;overflow:hidden;cursor:pointer}
+#appearance .ae-colour input[type=color]::-webkit-color-swatch-wrapper{padding:0}
+#appearance .ae-colour input[type=color]::-webkit-color-swatch{border:0;border-radius:50%}
+#appearance .ae-colour input[type=color]::-moz-color-swatch{border:0;border-radius:50%}
+#appearance .ae-colour .ae-label,#appearance .ae-colour .ae-value{grid-column:2;text-align:left}
+#appearance .ae-copy input{grid-column:1/-1;width:100%;min-width:0;height:34px;border:1px solid color-mix(in srgb,var(--fg) 18%,transparent);border-radius:3px;background:color-mix(in srgb,var(--fg) 2%,transparent);color:var(--fg);font:11px var(--ui-font);letter-spacing:0;padding:6px 8px}
+#appearance .ae-copy-wide{grid-column:1/-1}
+#appearance .ae-copy-hint{grid-column:1/-1;color:var(--muted);font-size:9px;line-height:1.5}
+#appearance .ae-bottom{display:flex;align-items:center;gap:8px;min-height:50px;padding:7px 16px;border-top:1px solid color-mix(in srgb,var(--fg) 11%,transparent);flex:none;background:none}
+#appearance .ae-ab{display:flex;align-items:center;border:1px solid color-mix(in srgb,var(--fg) 15%,transparent);border-radius:4px;overflow:hidden}
+#appearance .ae-ab .ae-button{border:0;border-radius:0;min-width:29px;min-height:28px;padding:5px 8px}
+#appearance .ae-ab .ae-button.active{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent) 35%,transparent)}
+#appearance .ae-tools-toggle{margin-left:auto;gap:9px}
+#appearance .ae-tools-toggle[aria-expanded=true]{color:var(--fg)}
+#appearance .ae-tools{padding:13px 18px 18px;border-top:1px solid color-mix(in srgb,var(--fg) 11%,transparent)}
+#appearance .ae-tool-actions{display:flex;align-items:center;justify-content:space-between;gap:5px;margin-bottom:13px}
+#appearance .ae-tool-actions .ae-button{padding-inline:7px}
+#appearance .ae-time-tools{display:flex;align-items:center;gap:20px;margin-bottom:15px}
+#appearance .ae-time-tools label{display:flex;align-items:center;gap:9px;color:var(--muted);font-size:9px;white-space:nowrap}
+#appearance .ae-phase{flex:1;min-width:0}
+#appearance .ae-phase input{width:100%;min-width:0;height:25px}
+#appearance .ae-seed{flex:none}
+#appearance .ae-seed input{width:61px;height:29px;background:transparent;border:1px solid color-mix(in srgb,var(--fg) 15%,transparent);border-radius:3px;color:var(--fg);font:10px var(--ui-font);padding:3px 6px;appearance:textfield}
+#appearance .ae-seed input::-webkit-inner-spin-button{display:none}
+#appearance .ae-mutation{display:flex;align-items:center;gap:9px}
+#appearance .ae-target{font:9px var(--ui-font);padding-left:0;max-width:108px;min-width:0;flex:1;letter-spacing:0;color:var(--muted)}
+#appearance .ae-strength{display:flex;align-items:center;gap:6px;flex:1;min-width:50px;font-size:9px;color:var(--muted)}
+#appearance .ae-strength input{width:100%;min-width:0;height:24px}
+#appearance .ae-mutate{border:1px solid color-mix(in srgb,var(--accent) 35%,transparent);color:var(--accent);flex:none}
+#appearance .ae-save-form{display:flex;align-items:center;gap:5px;padding:0 16px 12px;flex:none}
+#appearance .ae-save-form input{min-width:0;width:100%;height:32px;border:1px solid color-mix(in srgb,var(--fg) 22%,transparent);border-radius:3px;background:var(--bg);color:var(--fg);font:11px var(--ui-font);padding:6px 8px}
+#appearance [hidden]{display:none!important}
+#appearance :focus-visible{outline:1px solid var(--accent);outline-offset:3px}
+#appearance .ae-announcement{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+@media(max-width:430px){#appearance .ae-top{padding-inline:13px}#appearance .ae-preset-row,#appearance .ae-tabs,#appearance .ae-bottom{padding-inline:13px}#appearance .ae-body{padding-inline:15px;column-gap:16px}#appearance .ae-tools{padding-inline:15px}}
+@media(max-height:460px) and (orientation:landscape){#appearance .ae-top{min-height:34px;padding-top:2px}#appearance .ae-top .icon-button{height:28px}#appearance .ae-preset-row{padding-top:1px;padding-bottom:7px}#appearance .ae-look{height:30px}#appearance .ae-tabs{padding-block:4px}#appearance .ae-body{padding-block:13px;row-gap:13px}#appearance .ae-bottom{min-height:39px;padding-block:3px}#appearance .ae-save-form{padding-bottom:7px}}
+@media(pointer:coarse){#appearance .ae-control input[type=range]{height:29px}#appearance input[type=range]::-webkit-slider-thumb{width:13px;height:13px;margin-top:-5px}#appearance .ae-button{min-height:34px}#appearance .ae-copy input{font-size:16px}#appearance .ae-copy-wide input{font-size:16px}}
+@media(prefers-reduced-motion:reduce){#appearance *{transition:none!important}}
+
+/* Explain the affected surface without turning every control into a tooltip. */
+#appearance .ae-group-description{grid-column:1/-1;margin:0 0 1px;color:var(--muted);font-size:10px;line-height:1.6;max-width:36em}
+#appearance .ae-body{row-gap:17px;column-gap:20px;padding-top:14px}
+#appearance .ae-control{align-content:start;align-items:start;row-gap:4px}
+#appearance .ae-label{line-height:1.45}
+#appearance .ae-value{padding-top:1px}
+#appearance .ae-control-description{grid-column:1/-1;display:block;color:color-mix(in srgb,var(--fg) 60%,transparent);font-size:9px;line-height:1.5;font-weight:400;letter-spacing:0}
+#appearance .ae-colour{align-items:center}
+#appearance .ae-colour .ae-control-description{grid-column:1/-1;padding-top:4px}
+#appearance .ae-copy-hint{margin-top:-1px;color:color-mix(in srgb,var(--accent) 75%,var(--fg));font-size:9px}
+#appearance .ae-tools-description{font-size:9px;line-height:1.6;color:var(--muted);margin:0 0 15px}
+#appearance .ae-seed{flex-direction:column;align-items:flex-start!important;gap:5px!important}
+@media(max-width:360px){#appearance .ae-body{column-gap:14px}#appearance .ae-control-description{font-size:9px}#appearance .ae-time-tools{gap:12px}}
+
+@media(max-width:430px){#appearance .ae-surfaces{padding-inline:13px}}
+@media(max-height:460px) and (orientation:landscape){#appearance .ae-surfaces{padding-inline:12px}#appearance .ae-surface{min-height:30px;padding-block:4px}}
+@media(pointer:coarse){#appearance .ae-surface{min-height:40px}}
+
+/* Leave a complete control row visible on short landscape touch displays. */
+@media(max-height:460px) and (orientation:landscape){
+  #appearance .ae-top{min-height:32px;padding:1px 14px 0}
+  #appearance .ae-preset-row{padding:0 14px 3px;gap:8px}
+  #appearance .ae-toolbar .ae-button{min-height:30px}
+  #appearance .ae-surfaces{padding-inline:12px}
+  #appearance .ae-surface{min-height:32px;padding-block:4px}
+  #appearance .ae-tabs{padding:1px 14px;min-height:32px}
+  #appearance .ae-group-tools .ae-button{min-height:28px;padding-block:4px}
+  #appearance .ae-body{padding:8px 16px 10px;row-gap:12px}
+  #appearance .ae-group-description{display:none}
+  #appearance .ae-bottom{min-height:34px;padding:1px 14px}
+  #appearance .ae-bottom>.ae-button{min-height:30px}
+}

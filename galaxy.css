@@ -1,0 +1,19 @@
+.sky-stage.galaxy-stage{overflow:hidden;touch-action:none;cursor:grab;isolation:auto}
+.galaxy-stage:active{cursor:grabbing}.galaxy-stage[data-galaxy-mode=tune]{cursor:crosshair}.galaxy-stage[data-galaxy-mode=pan]{cursor:move}
+.sky-stage .galaxy-canvas,.sky-stage .galaxy-overlay{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;background:transparent}
+.sky-stage .galaxy-canvas{z-index:1}.sky-stage .galaxy-overlay{z-index:4}
+.galaxy-controls{position:absolute;left:7px;right:7px;bottom:5px;display:flex;align-items:center;gap:7px;z-index:7;pointer-events:auto;color:var(--fg);font-family:var(--ui-font);background:transparent}
+.galaxy-modes,.galaxy-view-tools{display:flex;align-items:center;gap:2px}
+.galaxy-controls button{display:flex;align-items:center;justify-content:center;gap:4px;min-height:28px;min-width:26px;padding:0 5px;color:var(--muted);border:1px solid transparent;border-radius:3px;font-size:8px;letter-spacing:.02em;background:transparent}
+.galaxy-controls button svg{width:13px;height:13px;stroke-width:1.2;flex:none}
+.galaxy-controls button[aria-pressed=true]{color:var(--secondary);border-color:color-mix(in srgb,var(--secondary) 35%,transparent)}
+.galaxy-controls button:hover{color:var(--fg);border-color:color-mix(in srgb,var(--fg) 30%,transparent)}
+.galaxy-depth{display:flex;flex:none;align-items:center;gap:6px;margin-left:auto;font-size:8px;white-space:nowrap;color:var(--muted);min-width:0}
+.galaxy-depth input[type=range]{width:65px;min-width:25px;height:28px;flex-shrink:0}
+.galaxy-depth output{font-size:8px;width:8ch;min-width:8ch;max-width:8ch;flex:0 0 8ch;letter-spacing:0;text-align:right;color:var(--fg);font-variant-numeric:tabular-nums}
+.galaxy-announcement{position:absolute;width:1px;height:1px;clip-path:inset(50%);overflow:hidden;white-space:nowrap}
+@media(max-width:1000px){.galaxy-controls{gap:3px;left:4px;right:4px}.galaxy-controls button{padding-inline:4px}.galaxy-depth{gap:4px}.galaxy-depth input[type=range]{width:42px}.galaxy-depth>span{font-size:7px}}
+@media(max-width:720px){.galaxy-controls button span{display:none}.galaxy-controls button{min-width:28px}.galaxy-depth input[type=range]{width:48px}.galaxy-depth>span{font-size:8px}}
+@media(max-height:460px) and (orientation:landscape){.galaxy-controls button span{display:none}.galaxy-controls button{min-width:24px;min-height:24px;padding-inline:3px}.galaxy-controls{bottom:2px}.galaxy-depth input[type=range]{height:24px;width:42px}.galaxy-depth>span{font-size:7px}}
+@media(pointer:coarse){.galaxy-controls button{min-height:32px}.galaxy-depth input[type=range]{height:32px}}
+@media(max-width:380px){.galaxy-depth{gap:2px}.galaxy-depth>span{font-size:0}.galaxy-depth>span::before{content:'Z';font-size:8px}.galaxy-depth input[type=range]{width:42px}}
