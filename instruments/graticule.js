@@ -1,39 +1,46 @@
 import * as THREE from '../vendor/three.module.min.js';
-import {TAU,clamp,lerp,rgba,createSurface,bindPointers,label,line} from './kit.js';
-
+import {TAU,clamp,lerp,rgba,seeded,createSurface,bindPointers,label,line} from './kit.js';
+import {splitLayout} from '../instrument-layout.js';
 export const definition={
-  id:'graticule',name:'Graticule / Lissajous',batch:2,
-  theme:{bg:'#05070a',fg:'#f2f4ee',accent:'#ffb14b',muted:'#8c949c'},
-  defaultSound:{waveform:'sawtooth',attack:.012,decay:.3,sustain:.6,release:1.3,cutoff:10000,resonance:1,gain:.3,ratio:1.5,index:.75,glide:.035,echo:.15},
-  defaultAppearance:{guideOpacity:.7,radialDivisions:28,traceWeight:1.4,phosphor:.85,persistence:.7,phaseSamples:1050,phaseDotSize:2.6,phasePitch:4,phaseDepth:.85,phaseAngle:-.48,phaseTilt:.55,phaseSlices:12,phaseDelay:.025,radialMotion:.5,polarColour:'#ffb14b',phaseColour:'#a8dfff',background:'#05070a'},
-  soundControls:[
-    {key:'ratio',label:'Frequency ratio',min:.25,max:8,step:.25,unit:'×',section:'Oscillator relationship',description:'Modulator/carrier ratio; also the horizontal axis of the right playing surface.'},
-    {key:'index',label:'Modulation index',min:0,max:10,step:.05,section:'Oscillator relationship',description:'FM depth, shown by deformation of the phase-space trace.'},
-    {key:'glide',label:'Pitch glide',min:.003,max:.3,step:.005,unit:'s',section:'Polar pitch',description:'Pitch transition time as the contact crosses degree sectors.'}
-  ],
-  appearanceControls:[
-    {key:'guideOpacity',label:'Polar guide opacity',min:.05,max:.8,step:.01,section:'Graticule',description:'Visibility of radial divisions and octave rings.'},
-    {key:'radialDivisions',label:'Radial divisions',min:7,max:56,step:1,section:'Graticule',description:'Number of angular guide divisions, independent of musical quantization.'},
-    {key:'traceWeight',label:'Orbit stroke',min:.5,max:3,step:.1,unit:'px',section:'Graticule',description:'Stroke width of the sounding orbit traces.'},
-    {key:'radialMotion',label:'Orbit phase motion',min:0,max:1.5,step:.05,section:'Graticule',description:'Slow phase advance of each sounding note’s orbit.'},
-    {key:'phosphor',label:'Phosphor glow',min:0,max:1.5,step:.05,section:'Phosphor',description:'Local glow of the orange traces and phase dots.'},
-    {key:'persistence',label:'Trace persistence',min:0,max:1,step:.05,section:'Phosphor',description:'Visibility of delayed signal slices behind the current carrier/modulator curve.'},
-    {key:'phaseSamples',label:'Phase samples',min:200,max:1400,step:50,section:'Phase plot',description:'Number of points used to plot the carrier/modulator relationship.'},
-    {key:'phaseDotSize',label:'Phase dot size',min:.6,max:3.5,step:.1,unit:'px',section:'Phase plot',description:'Size of individual points in the blue phase plot.'},
-    {key:'phasePitch',label:'Phase grid pitch',min:2,max:10,step:.5,unit:'px',section:'Phase plot',description:'Spacing of the fixed dot grid used to sample the phase-space figure.'},
-    {key:'phaseDepth',label:'Phase depth',min:0,max:1,step:.05,section:'Phase plot',description:'Separation of time-delay slices and quarter-cycle carrier depth.'},
-    {key:'phaseSlices',label:'Depth slices',min:2,max:16,step:1,section:'Phase plot',description:'Number of delayed carrier/modulator sample planes in the volume.'},
-    {key:'phaseDelay',label:'Slice delay',min:0,max:.08,step:.005,unit:'cyc',section:'Phase plot',description:'Time lag between carrier and modulator samples in successive depth slices, measured in carrier cycles.'},
-    {key:'phaseTilt',label:'Plot tilt',min:-1.2,max:1.2,step:.05,unit:'rad',section:'Phase plot',description:'Vertical viewing angle that reveals separation between delayed sample planes.'},
-    {key:'phaseAngle',label:'Plot rotation',min:-1.5,max:1.5,step:.05,unit:'rad',section:'Phase plot',description:'Viewing angle of the phase-space figure; does not change pitch.'},
-    {key:'polarColour',label:'Polar colour',kind:'color',section:'Palette',description:'Colour of radial guides and sounding orbital traces.'},
-    {key:'phaseColour',label:'Phase colour',kind:'color',section:'Palette',description:'Colour of the dotted carrier/modulator plot.'},
-    {key:'background',label:'Plot background',kind:'color',section:'Palette',description:'Background colour of the two plotting surfaces.'}
-  ]
+ id:'graticule',name:'Graticule / Lissajous',batch:2,theme:{bg:'#05070b',fg:'#eaf3f6',accent:'#ffb64d',muted:'#8799ac'},
+ defaultSound:{waveform:'sawtooth',attack:.012,decay:.3,sustain:.6,release:.6,cutoff:5400,resonance:2.3,gain:.24,ratio:1.5,index:0,detune:0,glide:.035,echo:.25,pairMix:.65,lfoRate:.35,lfoDepth:.08,sonarSteps:16},
+ defaultAppearance:{guideOpacity:.55,ringCount:8,ringGradient:.65,sonarTrail:.55,starSize:2.4,starGlow:.85,fieldDensity:420,pingSize:1,labels:true,scopeSamples:1100,scopePointSize:2.2,scopeGridPitch:3,scopeCycles:2,scopeRotation:-.3,scopeTilt:.18,scopeDepth:.2,scopePhase:0,scopeScale:.83,scopePersistence:.6,scopeLayers:4,scopeGlow:.7,scopeGrid:.18,polarColour:'#ffa73c',phaseColour:'#aacfff',background:'#05070b'},
+ soundControls:[
+  {key:'ratio',label:'B : A frequency ratio',min:.25,max:4,step:.25,unit:'×',section:'Oscillator pair',description:'Frequency of audible oscillator B relative to A. Also the horizontal axis of the right surface.'},
+  {key:'pairMix',label:'Oscillator B level',min:0,max:1,step:.05,section:'Oscillator pair',description:'Relative level of the second audible oscillator shown on the Y axis.'},
+  {key:'lfoRate',label:'Pitch LFO rate',min:.03,max:5,step:.01,unit:'Hz',section:'Oscillator pair',description:'Rate of the slow pitch drift applied to B at sonar crossings and continuously for held contacts.'},
+  {key:'lfoDepth',label:'Pitch LFO depth',min:0,max:1,step:.01,section:'Oscillator pair',description:'Depth of B’s pitch drift, up to one semitone.'},
+  {key:'echo',label:'Echo send',min:0,max:.7,step:.01,section:'Oscillator pair',description:'Shared echo level for star-triggered oscillator pairs.'},
+  {key:'sonarSteps',label:'Steps per scan',min:4,max:64,step:1,unit:'steps',section:'Sonar sequencer',description:'Number of sixteenth-note transport steps in one complete sonar revolution.'}
+ ],
+ appearanceControls:[
+  {key:'ringCount',label:'Concentric rings',min:3,max:16,step:1,section:'Star map',description:'Number of concentric distance guides in the sonar map.'},
+  {key:'ringGradient',label:'Inner ring gradients',min:0,max:1.5,step:.05,section:'Star map',description:'Strength of the warm inner gradients between radial rings.'},
+  {key:'guideOpacity',label:'Map grid contrast',min:0,max:1,step:.01,section:'Star map',description:'Contrast of concentric rings, angular ticks and radial pitch guides.'},
+  {key:'fieldDensity',label:'Background stars',min:80,max:1000,step:20,section:'Star map',description:'Density of faint contextual stars; sequence stars remain individually editable.'},
+  {key:'starSize',label:'Sequence star size',min:1,max:5,step:.1,unit:'px',section:'Star map',description:'Size of the bright stars that emit notes when the sonar crosses them.'},
+  {key:'starGlow',label:'Star emission',min:0,max:1.5,step:.05,section:'Star map',description:'Bounded local glow around sequence stars.'},
+  {key:'sonarTrail',label:'Scan persistence',min:0,max:1,step:.05,section:'Star map',description:'Angular length and opacity of the fading sonar sweep.'},
+  {key:'pingSize',label:'Ping radius',min:.3,max:2,step:.05,section:'Star map',description:'Expansion radius of the rings emitted when a star sounds.'},
+  {key:'labels',label:'Star coordinates',kind:'toggle',section:'Star map',description:'Shows note names and angular coordinates beside sequence stars.'},
+  {key:'scopeSamples',label:'Trace samples',min:250,max:1800,step:50,section:'Lissajous sampling',description:'Number of samples in the paired-oscillator trace.'},
+  {key:'scopeCycles',label:'Displayed A cycles',min:1,max:8,step:.5,section:'Lissajous sampling',description:'Number of oscillator-A periods included in the plotted relationship.'},
+  {key:'scopeGridPitch',label:'Dot-grid spacing',min:1,max:8,step:.5,unit:'px',section:'Lissajous sampling',description:'Fixed screen-space grid onto which trace samples are placed.'},
+  {key:'scopePointSize',label:'Dot size',min:.6,max:4,step:.1,unit:'px',section:'Lissajous sampling',description:'Size of individual square trace samples.'},
+  {key:'scopeLayers',label:'Persistence planes',min:1,max:8,step:1,section:'Lissajous sampling',description:'Number of recent trace planes retained behind the current curve.'},
+  {key:'scopePersistence',label:'History opacity',min:0,max:1,step:.05,section:'Lissajous sampling',description:'Visibility of older trace planes relative to the current white samples.'},
+  {key:'scopeRotation',label:'Horizontal view angle',min:-1.5,max:1.5,step:.05,unit:'rad',section:'Lissajous view',description:'Horizontal rotation of the trace plane and its quadrature relief.'},
+  {key:'scopeTilt',label:'Vertical view angle',min:-1.2,max:1.2,step:.05,unit:'rad',section:'Lissajous view',description:'Vertical viewing angle of the trace plane.'},
+  {key:'scopeDepth',label:'Quadrature relief',min:0,max:1,step:.05,section:'Lissajous view',description:'Depth assigned to the quarter-cycle A signal; zero shows a conventional flat XY trace.'},
+  {key:'scopePhase',label:'Display phase offset',min:-3.14,max:3.14,step:.05,unit:'rad',section:'Lissajous view',description:'Display-only phase offset of the Y channel, for inspecting the waveform relationship.'},
+  {key:'scopeScale',label:'Trace scale',min:.3,max:1,step:.02,section:'Lissajous view',description:'Size of the complete trace within its plotting frame.'},
+  {key:'scopeGlow',label:'Trace phosphor',min:0,max:1.5,step:.05,section:'Lissajous view',description:'Local light spread around sampled points.'},
+  {key:'scopeGrid',label:'Scope graticule',min:0,max:.6,step:.01,section:'Lissajous view',description:'Contrast of the XY measurement grid.'},
+  {key:'polarColour',label:'Sonar colour',kind:'color',section:'Palette',description:'Colour of sonar guides, gradients and note pings.'},
+  {key:'phaseColour',label:'Trace colour',kind:'color',section:'Palette',description:'Blue-white colour of the oscillator relationship.'},
+  {key:'background',label:'Instrument background',kind:'color',section:'Palette',description:'Background shared by the star map and scope.'}
+ ]
 };
-
-export function polarGeometry(width,height){const top=64,bottom=Math.max(top+55,height-88),x=width*.255,y=(top+bottom)*.5,r=Math.max(20,Math.min(width*.215,(bottom-top)*.48));return{x,y,r,top,bottom};}
-export function polarMapping(nx,ny,aspect=1.5,height=720){const width=aspect*height,g=polarGeometry(width,height),x=(nx*width-g.x)/g.r,y=(ny*height-g.y)/g.r,r=clamp(Math.hypot(x,y),0,1),angle=((Math.atan2(y,x)+Math.PI*.5)%TAU+TAU)%TAU;return{degree:Math.min(6,Math.floor(angle/TAU*7)),octave:Math.min(2,Math.floor(r*3))-1,r,angle};}
 const waveformTables=new Map();
 function oscillatorPoint(theta,waveform){
   if(waveform==='sine')return{value:Math.sin(theta),slope:Math.cos(theta),maxSlope:1};
@@ -50,122 +57,49 @@ function oscillatorPoint(theta,waveform){
   }
   const table=waveformTables.get(waveform),f=((theta/TAU%1)+1)%1*table.size,i=Math.floor(f),q=f-i;return{value:lerp(table.values[i],table.values[i+1],q),slope:lerp(table.slopes[i],table.slopes[i+1],q),maxSlope:table.maxSlope};
 }
-export function phasePoint(theta,ratio,index,waveform='sine'){
-  // The audio engine adds fc*index*sin(fm*t) to carrier frequency. Integrating
-  // it gives this phase, with both oscillators beginning at phase zero.
-  const mod=Math.sin(theta*ratio),phase=theta+index/ratio*(1-Math.cos(theta*ratio)),osc=oscillatorPoint(phase,waveform);
-  return{carrier:osc.value,mod,derivative:osc.slope*(1+index*mod)/(osc.maxSlope*(1+index)),quadrature:oscillatorPoint(phase+Math.PI*.5,waveform).value};
-}
+export function sonarGeometry(r){const top=r.h<210?44:r.h<330?62:84,bottom=Math.max(top+24,r.h-(r.h<210?57:79)),h=bottom-top;return{x:r.x+r.w/2,y:r.y+top+h/2,r:Math.max(8,Math.min(r.w*.46,h*.47)),top:r.y+top,bottom:r.y+bottom};}
+export function starsCrossed(stars,start,end){const result=[];if(end<=start)return result;for(const star of stars){if(star.enabled===false)continue;let angle=((star.angle%TAU)+TAU)%TAU;angle+=Math.floor(start/TAU)*TAU;if(angle<=start+1e-9)angle+=TAU;if(angle<=end+1e-9)result.push({star,fraction:(angle-start)/(end-start)});}return result.sort((a,b)=>a.fraction-b.fraction);}
+export function starPitch(star){return{degree:Math.min(6,Math.floor((((star.angle%TAU)+TAU)%TAU)/TAU*7)),octave:clamp(Math.floor(clamp(star.radius)*3)-1,-1,1)};}
+export function lissajousPoint(theta,ratio,phase=0,waveform='sine'){return{x:oscillatorPoint(theta,waveform).value,y:oscillatorPoint(theta*ratio+phase,waveform).value,z:oscillatorPoint(theta+Math.PI*.5,waveform).value};}
+const WAVES=[['sawtooth','SAW'],['square','SQR'],['triangle','TRI'],['sine','SIN']];
+const LEFT_CONTROLS=[['cutoff','CUT',80,16000,'Hz'],['resonance','RES',.1,10,'Q'],['attack','ATK',.005,2,'s'],['release','REL',.03,5,'s']];
+const RIGHT_CONTROLS=[['detune','DET',-40,40,'ct'],['lfoRate','LFO',.03,5,'Hz'],['lfoDepth','DEP',0,1,'%'],['echo','ECHO',0,.7,'%']];
 
 export function mount(host,api){
-  const wrapper=document.createElement('div');wrapper.style.cssText='position:absolute;inset:0;overflow:hidden;';host.append(wrapper);
-  const baseCanvas=document.createElement('canvas');baseCanvas.style.cssText='position:absolute;inset:0;width:100%;height:100%;pointer-events:none;';wrapper.append(baseCanvas);const bg=baseCanvas.getContext('2d');
-  const surface=createSurface(wrapper,{label:'Polar pitch and phase-space instrument. Left: angle selects pitch, radius selects octave. Right: horizontal motion changes ratio, vertical motion changes FM index.'});surface.canvas.style.cssText+='position:relative;z-index:2;';const c=surface.ctx,contacts=new Map();
-  let renderer=null,scene,camera,points,geometry,material,positions,alpha,shade,pointColor,lastW=0,lastH=0,selected=api.quantize(0),degree=0,octave=0,selectedPos={nx:.255,ny:.3},step=-1,lastPlotKey='';
-  const maxSamples=1400,maxPoints=maxSamples*16;
-  try{
-    renderer=new THREE.WebGLRenderer({alpha:true,premultipliedAlpha:true,antialias:false,powerPreference:'high-performance'});renderer.setPixelRatio(Math.min(devicePixelRatio||1,1.6));renderer.setClearColor(0,0);renderer.outputColorSpace=THREE.SRGBColorSpace;
-    renderer.domElement.style.cssText='position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1;';wrapper.insertBefore(renderer.domElement,surface.canvas);
-    scene=new THREE.Scene();camera=new THREE.OrthographicCamera(-1,1,1,-1,.1,2000);camera.position.z=700;
-    geometry=new THREE.BufferGeometry();positions=new Float32Array(maxPoints*3);alpha=new Float32Array(maxPoints);shade=new Float32Array(maxPoints);geometry.setAttribute('position',new THREE.BufferAttribute(positions,3).setUsage(THREE.DynamicDrawUsage));geometry.setAttribute('alpha',new THREE.BufferAttribute(alpha,1).setUsage(THREE.DynamicDrawUsage));geometry.setAttribute('shade',new THREE.BufferAttribute(shade,1).setUsage(THREE.DynamicDrawUsage));
-    material=new THREE.ShaderMaterial({transparent:true,depthWrite:false,uniforms:{colour:{value:new THREE.Color('#a8dfff')},size:{value:2},glow:{value:.5}},vertexShader:'attribute float alpha;attribute float shade;uniform float size;varying float a;varying float vShade;void main(){a=alpha;vShade=shade;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);gl_PointSize=size;}',fragmentShader:'uniform vec3 colour;uniform float glow;varying float a;varying float vShade;void main(){vec2 q=abs(gl_PointCoord-.5)*2.;float r=length(q),core=1.-smoothstep(.42,.55,max(q.x,q.y)),halo=exp(-r*r*4.)*glow*.17;gl_FragColor=vec4(mix(colour*vec3(.32,.5,.92),mix(colour,vec3(1.),core*.4),vShade),min(.98,a*(core+halo)));\n#include <colorspace_fragment>\n}' });points=new THREE.Points(geometry,material);points.frustumCulled=false;scene.add(points);
-  }catch{renderer?.dispose();renderer=null;}
-  function modulate(p){const ratio=Math.round(clamp((p.nx-.535)/.43,0,1)*31+1)/4,index=Math.round(clamp((.86-p.ny)/.72,0,1)*200)/20;api.setSound({ratio,index});}
-  const soundOptions=()=>({...api.state.sound});
-  const unbind=bindPointers(surface.canvas,{
-    down:p=>{const side=p.nx<.5?'polar':'phase',ownsVoice=side==='polar'||(!contacts.size&&!api.audio.snapshot().voices.some(v=>v.level>.001));const q={side,ownsVoice,midi:selected,nx:p.nx,ny:p.ny};contacts.set(p.id,q);
-      if(side==='polar'){const hit=polarMapping(p.nx,p.ny,surface.width/surface.height,surface.height);degree=hit.degree;octave=hit.octave;q.midi=selected=api.quantize(degree,octave);selectedPos={nx:p.nx,ny:p.ny};}else modulate(p);
-      if(ownsVoice)api.noteOn('polar-'+p.id,q.midi,soundOptions());api.setStatus(`${api.noteName(selected)} · ${api.state.sound.ratio.toFixed(2)}×`);},
-    move:p=>{const q=contacts.get(p.id);if(!q)return;q.nx=p.nx;q.ny=p.ny;if(q.side==='polar'){const hit=polarMapping(p.nx,p.ny,surface.width/surface.height,surface.height);degree=hit.degree;octave=hit.octave;q.midi=selected=api.quantize(degree,octave);selectedPos={nx:p.nx,ny:p.ny};api.noteUpdate('polar-'+p.id,q.midi,soundOptions());}else modulate(p);api.setStatus(`${api.noteName(selected)} · ${api.state.sound.ratio.toFixed(2)}×`);},
-    up:p=>{if(contacts.get(p.id)?.ownsVoice)api.noteOff('polar-'+p.id);contacts.delete(p.id);api.save();},
-    cancel:p=>{if(contacts.get(p.id)?.ownsVoice)api.noteOff('polar-'+p.id);contacts.delete(p.id);}
-  });
-  function plots(w,h,v){
-    const plotKey=JSON.stringify([w,h,surface.dpr,v.background,v.polarColour,v.phaseColour,v.guideOpacity,v.radialDivisions,api.state.root,api.state.scale]);
-    if(plotKey===lastPlotKey)return polarGeometry(w,h);lastPlotKey=plotKey;
-    if(baseCanvas.width!==Math.round(w*surface.dpr)||baseCanvas.height!==Math.round(h*surface.dpr)){baseCanvas.width=Math.round(w*surface.dpr);baseCanvas.height=Math.round(h*surface.dpr);bg.setTransform(surface.dpr,0,0,surface.dpr,0,0);}
-    bg.fillStyle=v.background;bg.fillRect(0,0,w,h);const{x,y,r,top,bottom}=polarGeometry(w,h);
-    bg.strokeStyle=rgba(v.polarColour,v.guideOpacity);bg.lineWidth=.6;
-    for(let n=1;n<=9;n++){bg.strokeStyle=rgba(v.polarColour,v.guideOpacity*(n%3===0?1:.62));bg.beginPath();bg.arc(x,y,r*n/9,0,TAU);bg.stroke();}
-    const box={x:w*.035,y:top,w:w*.44,h:bottom-top};bg.strokeStyle=rgba('#d9e0df',.36);bg.lineWidth=.75;bg.strokeRect(box.x,box.y,box.w,box.h);
-    for(let i=0;i<420;i++){const rr=r*Math.sqrt(((i*97)%419)/419),a=i*2.399963,xx=x+Math.cos(a)*rr,yy=y+Math.sin(a)*rr;bg.fillStyle=rgba(i%9===0?'#e6f1ff':v.polarColour,i%11===0?.6:.24);bg.fillRect(xx,yy,i%13===0?1.8:1,i%13===0?1.8:1);}
-    for(let i=0;i<84;i++){const a=i/84*TAU,r1=r*(i%7===0?.955:.978);line(bg,[[x+Math.cos(a)*r1,y+Math.sin(a)*r1],[x+Math.cos(a)*r,y+Math.sin(a)*r]],rgba(v.polarColour,.6),.8);}
-    const spokeColours=['#ffcc6d','#99ceff','#ed7db7','#b5ed89','#f0dd65','#7cebe4','#ad9bff'];for(let i=0;i<7;i++){const a=i/7*TAU-Math.PI*.5,dx=Math.cos(a),dy=Math.sin(a);line(bg,[[x,y],[x+dx*r,y+dy*r]],rgba(spokeColours[i],.9),1.45);bg.fillStyle=spokeColours[i];bg.beginPath();bg.moveTo(x+dx*r,y+dy*r);bg.lineTo(x+dx*(r-7)-dy*3,y+dy*(r-7)+dx*3);bg.lineTo(x+dx*(r-7)+dy*3,y+dy*(r-7)-dx*3);bg.closePath();bg.fill();}
-    for(let n=0;n<v.radialDivisions;n++){const a=n/v.radialDivisions*TAU;line(bg,[[x,y],[x+Math.cos(a)*r,y+Math.sin(a)*r]],rgba(v.polarColour,v.guideOpacity*.6),.6);}
-    for(let i=0;i<7;i++){const a=i/7*TAU-Math.PI/2;label(bg,api.noteName(api.quantize(i)).replace(/\d/g,''),x+Math.cos(a)*(r+15),y+Math.sin(a)*(r+15),rgba(v.polarColour,.7),w<650?8:10,'center');}
-    for(let i=0;i<3;i++)label(bg,['−1','0','+1'][i],x+8,y-r*(i+1)/3+8,rgba(v.polarColour,.4),8);
-    line(bg,[[w*.5,25],[w*.5,h-25]],rgba(v.phaseColour,.14),.6);
-    const px=w*.765,py=y,pw=w*.4,ph=(bottom-top)*.86;
-    bg.strokeStyle=rgba(v.phaseColour,.3);bg.lineWidth=.7;bg.strokeRect(w*.535,top,w*.43,bottom-top);
-    for(let i=0;i<=8;i++){const xx=px-pw*.5+pw*i/8;line(bg,[[xx,py-ph*.5],[xx,py+ph*.5]],rgba(v.phaseColour,.035),.5);}
-    for(let i=0;i<=6;i++){const yy=py-ph*.5+ph*i/6;line(bg,[[px-pw*.5,yy],[px+pw*.5,yy]],rgba(v.phaseColour,.035),.5);}
-    line(bg,[[px-pw*.5,py],[px+pw*.5,py]],rgba(v.phaseColour,.25),.7);line(bg,[[px,py-ph*.5],[px,py+ph*.5]],rgba(v.phaseColour,.25),.7);
-    label(bg,'−1',px-pw*.5,py+13,rgba(v.phaseColour,.3),8);label(bg,'+1',px+pw*.5,py+13,rgba(v.phaseColour,.3),8,'right');label(bg,'M',px+7,py-ph*.5,rgba(v.phaseColour,.5),8);label(bg,'C',px+pw*.5,py-9,rgba(v.phaseColour,.5),8,'right');
-    return{x,y,r,top,bottom};
-  }
-  function radialTrace(w,h,v,snap,t,plot){
-    const{x,y,r}=plot,all=snap.voices.filter(q=>q.level>.005).sort((a,b)=>b.level-a.level),voices=[];
-    for(const q of all)if(!voices.some(n=>n.midi===q.midi))voices.push(q);
-    const notes=voices.length?voices.slice(0,6):[{midi:selected,level:0,id:'idle'}];
-    c.save();c.beginPath();c.rect(w*.035,plot.top,w*.44,plot.bottom-plot.top);c.clip();
-    for(let k=0;k<notes.length;k++){
-      const n=notes[k],degreeIndex=Array.from({length:7},(_,i)=>i).find(i=>((api.quantize(i)-n.midi)%12+12)%12===0)??0,a=degreeIndex/7*TAU-Math.PI*.5,rr=r*(.48+clamp((n.midi-api.state.root+12)/36,0,1)*.43),level=n.id==='idle'?.04:clamp(Math.sqrt(n.level)*1.9,0,1),phase=(api.reducedMotion?0:t)*.32*v.radialMotion;
-      const ox=x+Math.cos(a)*r*.12,oy=y+Math.sin(a)*r*.08,flatten=.9+.06*Math.sin(a),head=a+phase*.24;
-      c.strokeStyle=rgba(v.polarColour,.28+level*.62);c.lineWidth=v.traceWeight;c.shadowColor=v.polarColour;c.shadowBlur=v.phosphor*(7+level*10);c.beginPath();c.ellipse(ox,oy,rr,rr*flatten,0,0,TAU);c.stroke();
-      const hx=ox+Math.cos(head)*rr,hy=oy+Math.sin(head)*rr*flatten;
-      line(c,[[x,y],[hx,hy]],rgba(v.polarColour,.35+level*.45),v.traceWeight*.8);
-      if(k<4&&level>.07){
-        for(let j=27;j>=0;j--){const q=j/27,aa=head-q*.82,xx=ox+Math.cos(aa)*rr,yy=oy+Math.sin(aa)*rr*flatten;c.fillStyle=rgba(v.polarColour,(1-q)*level*.12);c.beginPath();c.ellipse(xx,yy,r*(.06+level*.08)*(1-q*.4),r*.028*(.5+level),aa+Math.PI*.5,0,TAU);c.fill();}
-        c.fillStyle=rgba('#fff9e5',.45+level*.55);c.shadowColor='#fff1c0';c.shadowBlur=v.phosphor*(17+level*22);c.beginPath();c.ellipse(hx,hy,r*(.055+level*.11),r*.026*(.6+level),head+Math.PI*.5,0,TAU);c.fill();
-        c.fillStyle='#fffdf1';c.beginPath();c.ellipse(hx,hy,r*(.035+level*.07),r*.012*(.6+level),head+Math.PI*.5,0,TAU);c.fill();
-      }else{c.fillStyle=rgba('#fff2bc',.2+level*.6);c.beginPath();c.arc(hx,hy,2+level*2,0,TAU);c.fill();}
-    }
-    c.shadowBlur=0;c.restore();
-    const p=polarMapping(selectedPos.nx,selectedPos.ny,w/h,h),a=p.angle-Math.PI*.5,rr=p.r*r,px=x+Math.cos(a)*rr,py=y+Math.sin(a)*rr;
-    c.strokeStyle=rgba('#fff3db',.9);c.lineWidth=.8;c.beginPath();c.arc(px,py,7,0,TAU);c.stroke();line(c,[[px-12,py],[px+12,py]],rgba('#fff3db',.6),.7);line(c,[[px,py-12],[px,py+12]],rgba('#fff3db',.6),.7);
-    c.fillStyle=v.polarColour;c.beginPath();c.arc(x,y,3,0,TAU);c.fill();
-  }
-  function phaseTrace(w,h,v,snap,t){
-    const count=Math.round(v.phaseSamples),layers=Math.round(v.phaseSlices),ratio=api.state.sound.ratio,index=api.state.sound.index,cx=w*.765,pg=polarGeometry(w,h),cy=pg.y;
-    const ca=Math.cos(v.phaseAngle),sa=Math.sin(v.phaseAngle),ct=Math.cos(v.phaseTilt),st=Math.sin(v.phaseTilt),sx=w*.165/Math.max(1,Math.abs(ca)+v.phaseDepth*1.25*Math.abs(sa)),sy=(pg.bottom-pg.top)*.27,depth=Math.min(sx,sy)*v.phaseDepth;
-    const zBound=depth*(.46+.625*Math.min(1.5,v.phaseDelay/.025)),xBound=sx*Math.abs(ca)+zBound*Math.abs(sa),yBound=sy*Math.abs(ct)+(zBound*Math.abs(ca)+sx*Math.abs(sa))*Math.abs(st),fit=Math.min(1,w*.205/Math.max(1,xBound),(pg.bottom-pg.top)*.42/Math.max(1,yBound));
-    const active=snap.voices.filter(n=>n.level>.005).sort((a,b)=>b.started-a.started),voice=active.find(n=>n.midi===selected)||active[0],rms=clamp(snap.rms*5,0,1),phase=voice?(snap.time-voice.started)*TAU*440*Math.pow(2,(voice.midi-69)/12):0;let n=0;
-    if(renderer){material.uniforms.colour.value.set(v.phaseColour);material.uniforms.glow.value=v.phosphor;material.uniforms.size.value=v.phaseDotSize*Math.min(devicePixelRatio||1,1.6)*(1+v.phosphor*.9);}
-    // A time-delay embedding: X is the current carrier; each plane samples
-    // the modulator and quadrature carrier at an older, explicit phase lag.
-    // The depth dimension separates these measured relationships, rather
-    // than decorating a single curve with unrelated particle positions.
-    for(let layer=layers-1;layer>=0;layer--){
-      if(layer>0&&v.persistence===0)continue;
-      const fraction=layer/Math.max(1,layers-1),lag=layer*v.phaseDelay*TAU,strength=layer===0?.92+rms*.08:v.persistence*(.3+.55*(1-fraction)),plane=depth*(fraction-.5)*1.25*Math.min(1.5,v.phaseDelay/.025);
-      for(let i=0;i<count;i++){
-        const theta=i/(count-1)*TAU*4+phase,current=phasePoint(theta,ratio,index,api.state.sound.waveform),past=layer?phasePoint(theta-lag,ratio,index,api.state.sound.waveform):current;
-        const xx=current.carrier*sx,yy=past.mod*sy,zz=past.quadrature*depth*.46+plane,xr=xx*ca+zz*sa,zr=zz*ca-xx*sa,yr=yy*ct-zr*st;
-        const pitch=v.phasePitch||4,x=Math.round((cx+xr*fit)/pitch)*pitch,y=Math.round((cy-yr*fit)/pitch)*pitch;
-        if(renderer){positions[n*3]=x-w/2;positions[n*3+1]=h/2-y;positions[n*3+2]=zr*ct+yy*st;alpha[n]=strength*(.8+.2*i/count);shade[n]=1-fraction*.88;n++;}
-        else{c.fillStyle=rgba(v.phaseColour,strength*(.6+.4*i/count));const r=v.phaseDotSize*.5;c.fillRect(x-r,y-r,r*2,r*2);}
-      }
-    }
-    if(renderer){geometry.setDrawRange(0,n);geometry.attributes.position.needsUpdate=true;geometry.attributes.alpha.needsUpdate=true;geometry.attributes.shade.needsUpdate=true;renderer.render(scene,camera);}
-  }
-  function envelope(w,h,v,snap){
-    const sound=api.state.sound,x=22,y=h-64,width=w*.43,height=20,sum=sound.attack+sound.decay+.35+sound.release;
-    const ax=x+width*sound.attack/sum,dx=ax+width*sound.decay/sum,sx=dx+width*.35/sum;
-    line(c,[[x,y+height],[ax,y],[dx,y+height*(1-sound.sustain)],[sx,y+height*(1-sound.sustain)],[x+width,y+height]],rgba(v.polarColour,.4),.9);
-    label(c,`A ${(sound.attack*1000).toFixed(0)} ms`,x,y-8,rgba(v.polarColour,.5),8);label(c,`R ${sound.release.toFixed(2)} s`,x+width,y-8,rgba(v.polarColour,.5),8,'right');
-    const waveform=snap.waveform||[];if(waveform.length){const points=[];for(let i=0;i<180;i++){const value=waveform[Math.floor(i/180*waveform.length)]||0;points.push([w*.55+i/180*w*.415,h-53-value*24]);}line(c,points,rgba(v.phaseColour,.55),.8);}
-  }
-  return{
-    frame(t,dt){surface.resize();const w=surface.width,h=surface.height,v={...definition.defaultAppearance,...api.state.appearance},snap=api.audio.snapshot();c.clearRect(0,0,w,h);
-      if(renderer&&(lastW!==w||lastH!==h)){renderer.setSize(w,h,false);camera.left=-w/2;camera.right=w/2;camera.top=h/2;camera.bottom=-h/2;camera.updateProjectionMatrix();lastW=w;lastH=h;}
-      if(!contacts.size){const sounding=snap.voices.filter(v=>v.level>.001).sort((a,b)=>b.started-a.started)[0];if(sounding){selected=sounding.midi;octave=Math.floor((selected-api.state.root)/12);for(let i=0;i<7;i++)if(((api.quantize(i)-selected)%12+12)%12===0){degree=i;break;}}}const plot=plots(w,h,v);radialTrace(w,h,v,snap,t,plot);phaseTrace(w,h,v,snap,t);envelope(w,h,v,snap);
-      const small=w<650;label(c,'θ PITCH · r OCTAVE',22,23,rgba(v.polarColour,.6),small?8:10);label(c,api.noteName(selected),22,48,v.polarColour,small?21:29);label(c,`${(440*Math.pow(2,(selected-69)/12)).toFixed(2)} Hz`,w*.47,48,rgba(v.polarColour,.65),small?9:12,'right');
-      label(c,'X RATIO · Y INDEX',w*.55,23,rgba(v.phaseColour,.6),small?8:10);label(c,`${api.state.sound.ratio.toFixed(2)} : 1`,w*.55,48,v.phaseColour,small?19:27);label(c,`I ${api.state.sound.index.toFixed(2)}`,w-22,48,rgba(v.phaseColour,.65),small?10:13,'right');
-      label(c,`DEG ${degree+1}  OCT ${octave>=0?'+':''}${octave}`,22,h-20,rgba(v.polarColour,.5),9);label(c,`RMS ${snap.rms.toFixed(3)}`,w-22,h-20,rgba(v.phaseColour,.5),9,'right');
-    },
-    onStep(step,when){const melody=[0,4,2,6,3,5,1,4],midi=api.quantize(melody[step%8],step%4===3?1:0);api.audio.pulse('polar-step-'+step,midi,soundOptions(),when,60/api.state.bpm*.43);},
-    update(){api.audio.configure(api.state.sound);},
-    cancel(){for(const[id,q]of contacts)if(q.ownsVoice)api.noteOff('polar-'+id);contacts.clear();},
-    destroy(){unbind();for(const[id,q]of contacts)if(q.ownsVoice)api.noteOff('polar-'+id);contacts.clear();if(renderer){geometry.dispose();material.dispose();renderer.dispose();renderer.forceContextLoss();}surface.destroy();wrapper.remove();}
-  };
+ const wrapper=document.createElement('div');wrapper.style.cssText='position:absolute;inset:0;overflow:hidden';host.append(wrapper);const base=document.createElement('canvas');base.style.cssText='position:absolute;inset:0;width:100%;height:100%;pointer-events:none';wrapper.append(base);const bg=base.getContext('2d');const surface=createSurface(wrapper,{label:'Sonar star sequencer and Lissajous oscillator pair. Tap empty map space to add a note star, drag stars to tune them, double tap to mute. Right surface sets ratio and detune. Bottom bars scrub synthesis parameters.'});surface.canvas.style.cssText+='position:relative;z-index:2';const c=surface.ctx,random=seeded(317),field=Array.from({length:1000},()=>({r:Math.sqrt(random()),a:random()*TAU,s:random(),p:random()*TAU})),contacts=new Map(),heldPairs=new Map(),pending=[],pings=[];
+ let stars=Array.from({length:16},(_,i)=>({id:'star-'+i,angle:(i+.16+(i%3)*.09)/16*TAU,radius:.3+((i*7)%13)/13*.6,enabled:true})),nextStar=16,layout,t=0,scan=0,cursor=0,segments=[],lastNote=api.quantize(0),selectedStar=stars[0].id,lastTap=0,lastTapped='',lastW=0,lastH=0,renderer,scene,camera,points,geometry,material,positions,alphas,shades;
+ const cancelNote=id=>(api.noteCancel||api.noteOff)(id);
+ const panes=()=>layout=splitLayout(surface.width,surface.height,api.state.appearance,{pad:12,gap:16,stackPortrait:true,portraitRatio:.95});
+ const midiFor=star=>{const p=starPitch(star);return api.quantize(p.degree,p.octave);};
+ const ratioAt=time=>api.state.sound.ratio*Math.pow(2,(api.state.sound.detune/100+Math.sin(time*TAU*api.state.sound.lfoRate)*api.state.sound.lfoDepth)/12);
+ const pairOptions=(side)=>({...api.state.sound,index:0,detune:0,gain:api.state.sound.gain*(side?api.state.sound.pairMix:.8),pan:side?.28:-.28});
+ function startPair(id,midi){api.noteOn(id+'-A',midi,pairOptions(0));api.noteOn(id+'-B',midi+12*Math.log2(ratioAt(api.audio.snapshot().time)),pairOptions(1));heldPairs.set(id,{midi,released:false,latched:false});lastNote=midi;}
+ function endPair(id,cancelled=false){const release=cancelled?cancelNote:api.noteOff;release(id+'-A');release(id+'-B');const pair=heldPairs.get(id);if(pair){pair.released=true;pair.latched=!cancelled&&api.state.hold;}if(cancelled)heldPairs.delete(id);}
+ function pulse(star,when){const midi=midiFor(star),duration=60/api.state.bpm*.55;api.audio.pulse('sonar-'+star.id+'-A',midi,pairOptions(0),when,duration);api.audio.pulse('sonar-'+star.id+'-B',midi+12*Math.log2(ratioAt(when)),pairOptions(1),when,duration);pending.push({id:star.id,when,midi});}
+ try{renderer=new THREE.WebGLRenderer({alpha:true,premultipliedAlpha:true,antialias:false,powerPreference:'high-performance'});renderer.setPixelRatio(Math.min(devicePixelRatio||1,1.5));renderer.setClearColor(0,0);renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.domElement.style.cssText='position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1';wrapper.insertBefore(renderer.domElement,surface.canvas);scene=new THREE.Scene();camera=new THREE.OrthographicCamera(-1,1,1,-1,.1,2000);camera.position.z=700;const max=1800*8;positions=new Float32Array(max*3);alphas=new Float32Array(max);shades=new Float32Array(max);geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.BufferAttribute(positions,3).setUsage(THREE.DynamicDrawUsage));geometry.setAttribute('alpha',new THREE.BufferAttribute(alphas,1).setUsage(THREE.DynamicDrawUsage));geometry.setAttribute('shade',new THREE.BufferAttribute(shades,1).setUsage(THREE.DynamicDrawUsage));material=new THREE.ShaderMaterial({transparent:true,depthWrite:false,uniforms:{colour:{value:new THREE.Color('#aacfff')},size:{value:3},glow:{value:.7}},vertexShader:'attribute float alpha;attribute float shade;uniform float size;varying float a,s;void main(){a=alpha;s=shade;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);gl_PointSize=size;}',fragmentShader:'uniform vec3 colour;uniform float glow;varying float a,s;void main(){vec2 q=abs(gl_PointCoord-.5)*2.;float core=1.-smoothstep(.42,.58,max(q.x,q.y)),halo=exp(-dot(q,q)*3.)*glow*.17;gl_FragColor=vec4(mix(colour*vec3(.25,.42,.9),mix(colour,vec3(1.),.55),s),a*(core+halo));\n#include <colorspace_fragment>\n}'});points=new THREE.Points(geometry,material);points.frustumCulled=false;scene.add(points);}catch{renderer?.dispose();renderer=null;}
+ function controls(r,side){const list=side?RIGHT_CONTROLS:LEFT_CONTROLS,w=(r.w-18)/4;return list.map((d,i)=>({key:d[0],label:d[1],min:d[2],max:d[3],unit:d[4],x:r.x+9+i*w,y:r.y+r.h-57,w:w-9,h:39}));}
+ function waveGeometry(r){const width=Math.max(88,Math.min(172,r.w-76));return{x:r.x+r.w-width,w:width/4};}
+ function locate(p){panes();for(let side=0;side<2;side++){const r=side?layout.right:layout.left;if(p.x>=r.x&&p.x<=r.x+r.w&&p.y>=r.y&&p.y<=r.y+r.h)return{side,r};}return null;}
+ function mapStar(p,star){const g=sonarGeometry(layout.left),dx=p.x-g.x,dy=p.y-g.y;star.angle=((Math.atan2(dy,dx)+Math.PI*.5)%TAU+TAU)%TAU;star.radius=clamp(Math.hypot(dx,dy)/g.r,.08,.98);}
+ function move(q,p){if(q.kind==='slider'){const control=q.control,value=clamp(q.value+(p.x-q.x)/control.w*(control.max-control.min),control.min,control.max);api.setSound({[control.key]:value});return;}if(q.kind==='star'){const star=stars.find(s=>s.id===q.star);if(!star)return;mapStar(p,star);const midi=midiFor(star);heldPairs.get(q.source).midi=midi;lastNote=midi;api.noteUpdate(q.source+'-A',midi,pairOptions(0));api.noteUpdate(q.source+'-B',midi+12*Math.log2(ratioAt(api.audio.snapshot().time)),pairOptions(1));}else if(q.kind==='scope'){const r=layout.right,g=sonarGeometry(r);api.setSound({ratio:Math.round((.25+clamp((p.x-r.x-15)/(r.w-30))*3.75)*4)/4,detune:Math.round((.5-clamp((p.y-g.top)/(g.bottom-g.top)))*80)});}}
+ const unbind=bindPointers(surface.canvas,{down:p=>{const hit=locate(p);if(!hit)return false;const {side,r}=hit;for(const control of controls(r,side))if(p.x>=control.x&&p.x<=control.x+control.w&&p.y>=control.y-7&&p.y<=control.y+control.h){contacts.set(p.id,{kind:'slider',control,x:p.x,value:api.state.sound[control.key]});return;}
+   if(side===0&&p.y<r.y+30&&p.x>waveGeometry(r).x){const wave=waveGeometry(r),index=clamp(Math.floor((p.x-wave.x)/wave.w),0,3);api.setSound({waveform:WAVES[index][0]});contacts.set(p.id,{kind:'button'});return;}if(side===0){const g=sonarGeometry(r);if(p.y<g.top||p.y>g.bottom)return false;let star=stars.reduce((best,s)=>{const x=g.x+Math.sin(s.angle)*s.radius*g.r,y=g.y-Math.cos(s.angle)*s.radius*g.r,d=Math.hypot(x-p.x,y-p.y);return d<best.d?{s,d}:best;},{s:null,d:17}).s;if(!star){if(stars.length>=64)return false;star={id:'star-'+nextStar++,angle:0,radius:.5,enabled:true};mapStar(p,star);stars.push(star);}else if(lastTapped===star.id&&performance.now()-lastTap<320)star.enabled=!star.enabled;lastTap=performance.now();lastTapped=star.id;selectedStar=star.id;const source='map-contact-'+p.id;contacts.set(p.id,{kind:'star',star:star.id,source});startPair(source,midiFor(star));pings.push({id:star.id,born:api.audio.snapshot().time});}else{contacts.set(p.id,{kind:'scope'});move(contacts.get(p.id),p);if(!api.audio.snapshot().voices.length){const source='scope-contact-'+p.id;contacts.get(p.id).source=source;startPair(source,lastNote);}}},move:p=>{const q=contacts.get(p.id);if(q)move(q,p);},up:p=>{const q=contacts.get(p.id);if(q?.source)endPair(q.source);contacts.delete(p.id);api.save();},cancel:p=>{const q=contacts.get(p.id);if(q?.source)endPair(q.source,true);contacts.delete(p.id);}});
+ function drawMap(v,snap){const r=layout.left,g=sonarGeometry(r);bg.save();bg.beginPath();bg.rect(r.x,g.top,r.w,g.bottom-g.top);bg.clip();const colours=[v.polarColour,'#a6c5ff','#f4bdcb','#b4e6bf'];for(let group=0;group<4;group++){bg.fillStyle=rgba(colours[group],.28);bg.beginPath();for(let i=group;i<v.fieldDensity;i+=4){const s=field[i],x=g.x+Math.cos(s.a)*s.r*g.r,y=g.y+Math.sin(s.a)*s.r*g.r,size=.45+s.s*.7;bg.rect(x,y,size,size);}bg.fill();}
+   for(let k=1;k<=v.ringCount;k++){const rad=g.r*k/v.ringCount,grad=bg.createRadialGradient(g.x,g.y,Math.max(0,rad-g.r/v.ringCount),g.x,g.y,rad);grad.addColorStop(0,rgba(v.polarColour,0));grad.addColorStop(.74,rgba(v.polarColour,.015*v.ringGradient));grad.addColorStop(1,rgba(v.polarColour,.12*v.ringGradient));bg.fillStyle=grad;bg.beginPath();bg.arc(g.x,g.y,rad,0,TAU);bg.fill();bg.strokeStyle=rgba(v.polarColour,v.guideOpacity*(k%2?.6:1));bg.lineWidth=k%2?.6:1;bg.beginPath();bg.arc(g.x,g.y,rad,0,TAU);bg.stroke();}
+   for(let i=0;i<72;i++){const a=i/72*TAU,rr=g.r*(i%6?.975:.94);line(bg,[[g.x+Math.sin(a)*rr,g.y-Math.cos(a)*rr],[g.x+Math.sin(a)*g.r,g.y-Math.cos(a)*g.r]],rgba(v.polarColour,v.guideOpacity),.7);}for(let i=0;i<7;i++){const a=i/7*TAU;line(bg,[[g.x,g.y],[g.x+Math.sin(a)*g.r,g.y-Math.cos(a)*g.r]],rgba(colours[i%4],.38),.8);}
+   if(api.state.playing){for(let i=35;i>=0;i--){const a=scan-i/35*v.sonarTrail*.85;line(bg,[[g.x,g.y],[g.x+Math.sin(a)*g.r,g.y-Math.cos(a)*g.r]],rgba(v.polarColour,(1-i/36)*.07*v.sonarTrail),1.5);}bg.shadowColor=v.polarColour;bg.shadowBlur=12;line(bg,[[g.x,g.y],[g.x+Math.sin(scan)*g.r,g.y-Math.cos(scan)*g.r]],rgba('#fff0be',.9),1.5);bg.shadowBlur=0;}
+   for(const star of stars){const x=g.x+Math.sin(star.angle)*star.radius*g.r,y=g.y-Math.cos(star.angle)*star.radius*g.r,ping=pings.filter(p=>p.id===star.id).sort((a,b)=>b.born-a.born)[0],age=ping?snap.time-ping.born:10,hot=Math.max(0,1-age*1.5),size=v.starSize*(1+hot*1.4),enabled=star.enabled;bg.fillStyle=rgba(hot?'#fff9e8':v.polarColour,enabled?.8:.2);bg.shadowColor=v.polarColour;bg.shadowBlur=v.starGlow*(3+hot*16);bg.beginPath();bg.arc(x,y,size,0,TAU);bg.fill();bg.shadowBlur=0;if(age<1){bg.strokeStyle=rgba(v.polarColour,(1-age)*.65);bg.lineWidth=.9;bg.beginPath();bg.arc(x,y,4+age*28*v.pingSize,0,TAU);bg.stroke();}if(selectedStar===star.id){bg.strokeStyle=rgba('#f4f2db',.7);bg.lineWidth=.8;bg.strokeRect(x-7,y-7,14,14);}if(v.labels)label(bg,api.noteName(midiFor(star)),x+7,y-8,rgba(enabled?'#f5dba3':'#728092',.7),r.w<330?6:8);}
+   bg.restore();bg.strokeStyle=rgba('#bbcad2',.38);bg.lineWidth=.75;bg.strokeRect(r.x+3,g.top,r.w-6,g.bottom-g.top);label(c,api.noteName(lastNote),r.x+9,r.y+22,v.polarColour,r.h<330?20:27);const wave=waveGeometry(r),bw=wave.w-3;for(let i=0;i<4;i++){const x=wave.x+i*wave.w,y=r.y+5,active=api.state.sound.waveform===WAVES[i][0];c.fillStyle=rgba(v.polarColour,active?.8:.02);c.fillRect(x,y,bw,22);c.strokeStyle=rgba(v.polarColour,.5);c.lineWidth=.7;c.strokeRect(x,y,bw,22);label(c,WAVES[i][1],x+bw/2,y+11,active?'#13100a':rgba(v.polarColour,.7),8,'center');}label(c,`STARS ${String(stars.filter(s=>s.enabled).length).padStart(2,'0')} · SCAN ${api.state.sound.sonarSteps} × 1/16`,r.x+9,r.y+46,rgba(v.polarColour,.65),r.w<380?7:9);label(c,`${(scan%TAU/TAU*360).toFixed(1)}°`,r.x+r.w-9,r.y+46,rgba(v.polarColour,.7),9,'right');label(c,'ANGLE → DEGREE · RADIUS → OCTAVE',r.x+9,r.y+r.h-7,rgba(v.polarColour,.55),r.w<360?7:8);
+ }
+ function drawScope(v,snap){const r=layout.right,g=sonarGeometry(r),cx=r.x+r.w*.5,cy=(g.top+g.bottom)/2,pw=r.w*.43,ph=(g.bottom-g.top)*.44;bg.strokeStyle=rgba(v.phaseColour,.3);bg.lineWidth=.75;bg.strokeRect(r.x+3,g.top,r.w-6,g.bottom-g.top);for(let i=-4;i<=4;i++){const x=cx+i/4*pw;line(bg,[[x,g.top+9],[x,g.bottom-9]],rgba(v.phaseColour,v.scopeGrid*(i===0?1:.3)),.6);}for(let i=-3;i<=3;i++){const y=cy+i/3*ph;line(bg,[[r.x+10,y],[r.x+r.w-10,y]],rgba(v.phaseColour,v.scopeGrid*(i===0?1:.3)),.6);}for(let i=0;i<=6;i++)label(bg,['1:1','3:2','2:1','5:2','3:1','7:2','4:1'][i],r.x+18+i*(r.w-36)/6,g.bottom-7,rgba(v.phaseColour,.5),7,'center');
+   const active=snap.voices.filter(n=>n.id.endsWith('-A')&&n.level>.002).sort((a,b)=>b.started-a.started)[0],hz=440*Math.pow(2,((active?.midi??lastNote)-69)/12),elapsed=active?snap.time-active.started:0,paired=active?snap.voices.find(n=>n.id===active.id.slice(0,-1)+'B'&&Math.abs(n.started-active.started)<.003):null,ratio=paired?Math.pow(2,(paired.midi-active.midi)/12):ratioAt(snap.time),phase=elapsed*TAU*hz,ca=Math.cos(v.scopeRotation),sa=Math.sin(v.scopeRotation),ct=Math.cos(v.scopeTilt),st=Math.sin(v.scopeTilt),depth=Math.min(pw,ph)*v.scopeDepth*.6,extentX=pw*Math.abs(ca)+depth*1.5*Math.abs(sa),extentY=ph*Math.abs(ct)+(depth*1.5*Math.abs(ca)+pw*Math.abs(sa))*Math.abs(st),fit=v.scopeScale*Math.min(1,pw/Math.max(1,extentX),ph/Math.max(1,extentY));let n=0;
+   for(let layer=v.scopeLayers-1;layer>=0;layer--){if(layer&&v.scopePersistence===0)continue;const fraction=layer/Math.max(1,v.scopeLayers-1),alpha=layer?v.scopePersistence*(.65-fraction*.35):.97,used=new Set();for(let i=0;i<v.scopeSamples;i++){const theta=phase+i/(v.scopeSamples-1)*TAU*v.scopeCycles,p=lissajousPoint(theta,ratio,v.scopePhase,api.state.sound.waveform),xx=p.x*pw,yy=p.y*ph,zz=p.z*depth+layer*depth*.1,xr=xx*ca+zz*sa,zr=zz*ca-xx*sa,yr=yy*ct-zr*st,pitch=v.scopeGridPitch,x=Math.round((cx+xr*fit)/pitch)*pitch,y=Math.round((cy-yr*fit)/pitch)*pitch,key=x+':'+y;if(used.has(key))continue;used.add(key);if(renderer){positions[n*3]=x-surface.width/2;positions[n*3+1]=surface.height/2-y;positions[n*3+2]=zr;alphas[n]=alpha;shades[n]=1-fraction*.9;n++;}else{c.fillStyle=rgba(v.phaseColour,alpha);c.fillRect(x-v.scopePointSize/2,y-v.scopePointSize/2,v.scopePointSize,v.scopePointSize);}}}
+   if(renderer){material.uniforms.colour.value.set(v.phaseColour);material.uniforms.size.value=v.scopePointSize*Math.min(devicePixelRatio||1,1.5)*(1+v.scopeGlow*.65);material.uniforms.glow.value=v.scopeGlow;geometry.setDrawRange(0,n);geometry.attributes.position.needsUpdate=true;geometry.attributes.alpha.needsUpdate=true;geometry.attributes.shade.needsUpdate=true;renderer.setScissorTest(false);renderer.clear();renderer.setScissor(r.x,surface.height-r.y-r.h,r.w,r.h);renderer.setScissorTest(true);renderer.render(scene,camera);}
+   label(c,`${api.state.sound.ratio.toFixed(2)} : 1`,r.x+9,r.y+21,v.phaseColour,r.h<330?20:27);label(c,`Δ ${api.state.sound.detune.toFixed(1)} ct`,r.x+r.w-9,r.y+20,rgba(v.phaseColour,.8),9,'right');label(c,`A ${hz.toFixed(1)} Hz · B ${(hz*ratio).toFixed(1)} Hz`,r.x+9,r.y+44,rgba(v.phaseColour,.7),r.w<350?7:9);label(c,`BEAT ${Math.abs(hz*ratio-hz*api.state.sound.ratio).toFixed(2)} Hz`,r.x+9,r.y+60,rgba(v.phaseColour,.45),8);label(c,`XY / ${v.scopeSamples} SAMPLES · ${v.scopeCycles.toFixed(1)} CYCLES`,r.x+9,r.y+r.h-7,rgba(v.phaseColour,.5),r.w<350?7:8);
+ }
+ function drawControls(r,side,v){for(const control of controls(r,side)){const value=api.state.sound[control.key],f=clamp((value-control.min)/(control.max-control.min)),colour=side?v.phaseColour:v.polarColour;label(c,control.label,control.x,control.y,rgba(colour,.65),8);const formatted=control.unit==='%'?Math.round(value*100)+'%':control.key==='cutoff'?(value/1000).toFixed(1)+'k':control.unit==='s'?(value<1?Math.round(value*1000)+'m':value.toFixed(1)+'s'):value.toFixed(control.key==='detune'?0:2);label(c,formatted,control.x+control.w,control.y,rgba(colour,.75),8,'right');c.fillStyle=rgba(colour,.13);c.fillRect(control.x,control.y+12,control.w,4);c.fillStyle=rgba(colour,.7);c.fillRect(control.x,control.y+12,control.w*f,4);c.fillStyle=colour;c.fillRect(control.x+control.w*f-2,control.y+8,3,12);}}
+ return{frame(time,dt){t=time;surface.resize();panes();const w=surface.width,h=surface.height,v={...definition.defaultAppearance,...api.state.appearance},snap=api.audio.snapshot();if(base.width!==surface.canvas.width||base.height!==surface.canvas.height){base.width=surface.canvas.width;base.height=surface.canvas.height;bg.setTransform(surface.dpr,0,0,surface.dpr,0,0);}bg.fillStyle=v.background;bg.fillRect(0,0,w,h);c.clearRect(0,0,w,h);if(renderer&&(lastW!==w||lastH!==h)){renderer.setSize(w,h,false);camera.left=-w/2;camera.right=w/2;camera.top=h/2;camera.bottom=-h/2;camera.updateProjectionMatrix();lastW=w;lastH=h;}
+   while(pending.length&&pending[0].when<=snap.time){const e=pending.shift();lastNote=e.midi;pings.push({id:e.id,born:e.when});}const segment=segments.filter(s=>s.when<=snap.time).at(-1);if(segment)scan=lerp(segment.start,segment.end,clamp((snap.time-segment.when)/segment.duration));segments=segments.filter(s=>s.when+2>snap.time);for(let i=pings.length-1;i>=0;i--)if(snap.time-pings[i].born>1.2)pings.splice(i,1);
+   for(const[id,pair]of heldPairs){if(!api.state.hold)pair.latched=false;if(!pair.released||(pair.latched&&api.state.hold)){api.noteUpdate(id+'-A',pair.midi,pairOptions(0));api.noteUpdate(id+'-B',pair.midi+12*Math.log2(ratioAt(snap.time)),pairOptions(1));}else if(!snap.voices.some(v=>v.id===id+'-A'||v.id===id+'-B'))heldPairs.delete(id);}drawMap(v,snap);drawScope(v,snap);drawControls(layout.left,0,v);drawControls(layout.right,1,v);},
+  onStep(step,when){const duration=60/api.state.bpm/4,start=cursor,end=start+TAU/Math.max(4,api.state.sound.sonarSteps);for(const event of starsCrossed(stars,start,end))pulse(event.star,when+event.fraction*duration);segments.push({when,start,end,duration});cursor=end;},setPlaying(playing){if(!playing){pending.length=0;segments=[];cursor=scan;}},update(){for(const[id,pair]of heldPairs){api.noteUpdate(id+'-A',pair.midi,pairOptions(0));api.noteUpdate(id+'-B',pair.midi+12*Math.log2(ratioAt(api.audio.snapshot().time)),pairOptions(1));}},cancel(){for(const[id]of heldPairs)endPair(id,true);contacts.clear();pending.length=0;segments=[];cursor=scan;},getData(){return{stars,nextStar};},setData(data){if(Array.isArray(data?.stars)){stars=data.stars.filter(s=>Number.isFinite(s.angle)&&Number.isFinite(s.radius)).slice(0,64).map((s,i)=>({id:'star-'+i,angle:((s.angle%TAU)+TAU)%TAU,radius:clamp(s.radius,.08,.98),enabled:s.enabled!==false}));nextStar=stars.length;}},destroy(){unbind();for(const[id]of heldPairs)endPair(id,true);if(renderer){geometry.dispose();material.dispose();renderer.dispose();renderer.forceContextLoss();}surface.destroy();wrapper.remove();}}
 }
