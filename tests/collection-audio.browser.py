@@ -101,6 +101,10 @@ async def run(args, base_url):
               audio.configure({index:5,ratio:3});await sleep(150);out.fm={...read(),recording:await capture()};
               audio.configure({crush:.8});await sleep(50);out.crush=await capture();
               audio.configure({crush:0});await sleep(50);out.clean=await capture();
+              audio.configure({waveform:'wavetable',tablePosition:0,tableWarp:0,index:0});await sleep(120);out.tableSine={...read(),recording:await capture()};
+              audio.configure({tablePosition:.65,tableWarp:.25});await sleep(120);out.tableRich={...read(),recording:await capture()};
+              audio.configure({eqLowGain:-18,eqLowFreq:500,eqMidGain:-18,eqMidFreq:440,eqMidQ:.7});await sleep(150);out.eqCut={...read(),recording:await capture()};
+              audio.configure({waveform:'sine',tablePosition:.35,tableWarp:0,eqLowGain:0,eqMidGain:0});
               audio.panic();await sleep(100);out.panic=await capture();
               audio.setPerformance({hold:true,arp:false});audio.noteOn('hold',60);audio.noteOff('hold');await sleep(100);out.hold={sources:audio.sources.size,recording:await capture()};
               audio.setPerformance({hold:false});await sleep(400);out.release=await capture();
@@ -124,6 +128,10 @@ async def run(args, base_url):
                         assert recording["bytes"] > 128 and recording["seconds"] > .1, (name, recording)
             assert report["sine"]["recording"]["rms"] > .01, report
             assert report["fm"]["centroid"] > report["sine"]["centroid"] * 1.4, report
+            assert report["tableSine"]["recording"]["rms"] > .005, report
+            assert report["tableRich"]["recording"]["rms"] > .005, report
+            assert report["tableRich"]["centroid"] > report["tableSine"]["centroid"] * 1.2, report
+            assert report["eqCut"]["recording"]["rms"] < report["tableRich"]["recording"]["rms"] * .65, report
             for name in ["fm", "hold", "arp", "external"]:
                 assert .001 < report[name]["recording"]["rms"] < .6, (name, report[name])
             for name in ["crush", "clean"]:

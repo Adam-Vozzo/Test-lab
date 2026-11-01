@@ -19,7 +19,7 @@ function fixture({fail}={}){
 test('complete instrument dependency graph installs with bounded downloads',async()=>{
   const f=fixture();await f.lifecycle('install');assert.equal(f.stores.size,1);assert.equal(f.peak,4);assert.equal(f.skipped,0);
   const cache=[...f.stores.values()][0],paths=[...cache.keys()].map(url=>url.slice(base.length));
-  assert.equal(paths.length,41);
+  assert.equal(paths.length,47);
   for(const path of paths){
     const file=new URL('../'+path,import.meta.url);await fs.access(file);
     if(!path.endsWith('.js'))continue;

@@ -1,147 +1,100 @@
+import * as THREE from '../vendor/three.module.min.js';
 import {TAU,clamp,lerp,rgba,createSurface,bindPointers,label,line} from './kit.js';
+import {splitLayout} from '../instrument-layout.js';
 
 export const definition={
   id:'carrier',name:'Carrier / Modulator',batch:1,
   theme:{bg:'#f0ede5',fg:'#262725',accent:'#ce4939',muted:'#79766e'},
-  defaultSound:{waveform:'sine',attack:.025,decay:.25,sustain:.75,release:.75,cutoff:9500,resonance:.6,ratio:2,index:1.8,gain:.28,glide:.055},
-  defaultAppearance:{dotSpacing:27,dotSize:1.65,guideOpacity:.25,ribbonWidth:1,ribbonOpacity:.7,tension:8,damping:7,ribbonMotion:.65,coupling:.55,paperGrain:.035,ink:'#262725',paper:'#f0ede5',prismHue:0},
+  defaultSound:{waveform:'sine',attack:.025,decay:.25,sustain:.75,release:.75,cutoff:7200,resonance:1.6,ratio:2,index:2.2,gain:.28,glide:.055,detune:0,echo:.12},
+  defaultAppearance:{dotSpacing:27,dotSize:1.5,guideOpacity:.25,ribbonWidth:1,ribbonOpacity:.77,tension:10,damping:9,ribbonMotion:.55,coupling:.55,paperGrain:.035,ink:'#262725',paper:'#f0ede5',prismHue:0,blobRelief:.65,blobOverlap:.42,arcOpacity:.6},
   soundControls:[
-    {key:'ratio',label:'Modulator ratio',min:.25,max:12,step:.25,unit:'×',section:'Modulation',description:'Modulator frequency relative to the carrier; also the right radial selection.'},
-    {key:'index',label:'Modulation index',min:0,max:12,step:.05,section:'Modulation',description:'FM depth and the width of the coupling traces.'},
-    {key:'glide',label:'Pitch glide',min:0,max:.35,step:.005,unit:'s',section:'Pitch',description:'Time for the carrier to move between selected scale notes.'}
+    {key:'ratio',label:'Modulator ratio',min:.25,max:12,step:.25,unit:'×',section:'Modulation',description:'Frequency ratio, also adjusted by the first right-hand synthesis blob.'},
+    {key:'index',label:'Modulation index',min:0,max:12,step:.05,section:'Modulation',description:'FM depth; pinch the right path or drag its arc to change this value.'},
+    {key:'glide',label:'Pitch glide',min:.003,max:.35,step:.005,unit:'s',section:'Pitch',description:'Transition time between notes in the left blob sequence.'}
   ],
   appearanceControls:[
-    {key:'ribbonWidth',label:'Ribbon width',min:.25,max:2,step:.05,section:'Ribbons',description:'Width of the translucent prismatic surfaces.'},
-    {key:'ribbonOpacity',label:'Ribbon opacity',min:.1,max:1,step:.01,section:'Ribbons',description:'Transparency of the coloured ribbon material.'},
-    {key:'tension',label:'Ribbon tension',min:2,max:20,step:.5,section:'Ribbons',description:'How quickly ribbons follow a moving contact; sound remains immediate.'},
-    {key:'damping',label:'Ribbon damping',min:2,max:16,step:.5,section:'Ribbons',description:'How quickly ribbon motion settles after a gesture.'},
-    {key:'ribbonMotion',label:'Surface motion',min:0,max:1.5,step:.05,section:'Ribbons',description:'Local ripple movement inside the ribbons.'},
-    {key:'prismHue',label:'Prism hue',min:-180,max:180,step:1,unit:'°',section:'Ribbons',description:'Rotates the ribbon spectrum without recolouring the paper or ink.'},
-    {key:'coupling',label:'Coupling trace opacity',min:0,max:1,step:.05,section:'Coupling',description:'Visibility of the traces linking carrier and modulation.'},
-    {key:'dotSpacing',label:'Dot spacing',min:12,max:42,step:1,unit:'px',section:'Guides',description:'Spacing of the fixed paper dot lattice.'},
-    {key:'dotSize',label:'Dot radius',min:.35,max:2,step:.05,unit:'px',section:'Guides',description:'Radius of each paper guide dot.'},
-    {key:'guideOpacity',label:'Radial guide opacity',min:0,max:.6,step:.01,section:'Guides',description:'Contrast of degree, ratio and angle guides.'},
-    {key:'paperGrain',label:'Paper grain',min:0,max:.35,step:.01,section:'Paper',description:'Fine static fibre texture on the paper.'},
-    {key:'paper',label:'Paper colour',kind:'color',section:'Paper',description:'Background colour of the playing surface.'},
-    {key:'ink',label:'Ink colour',kind:'color',section:'Paper',description:'Guide dots, contact nodes and technical readouts.'}
+    {key:'ribbonWidth',label:'Blob scale',min:.35,max:1.8,step:.05,section:'Blob chains',description:'Visual size of both connected blob chains; the gesture arcs retain their synthesis mapping.'},
+    {key:'ribbonOpacity',label:'Material opacity',min:.2,max:1,step:.01,section:'Blob chains',description:'Transparency of the coloured liquid bodies.'},
+    {key:'blobRelief',label:'Surface relief',min:0,max:1.5,step:.05,section:'Blob chains',description:'Strength of highlights and internal shadow gradients on each blob.'},
+    {key:'blobOverlap',label:'Blob overlap',min:.05,max:.8,step:.05,section:'Blob chains',description:'How much neighbouring cells overlap to form a continuous path.'},
+    {key:'ribbonMotion',label:'Local deformation',min:0,max:1.5,step:.05,section:'Blob chains',description:'Slow independent deformation of blob outlines, without changing their note positions.'},
+    {key:'prismHue',label:'Spectrum rotation',min:-180,max:180,step:1,unit:'°',section:'Blob chains',description:'Rotates the liquid spectrum without changing paper or guide colours.'},
+    {key:'tension',label:'Path tension',min:2,max:20,step:.5,section:'Motion',description:'How quickly the connected path follows a dragged endpoint.'},
+    {key:'damping',label:'Path damping',min:2,max:16,step:.5,section:'Motion',description:'How quickly elastic motion settles after a gesture.'},
+    {key:'coupling',label:'Coupling opacity',min:0,max:1,step:.05,section:'Guides',description:'Visibility of the coupling paths between the two organic root nodes.'},
+    {key:'dotSpacing',label:'Dot spacing',min:12,max:42,step:1,unit:'px',section:'Guides',description:'Spacing of the paper’s radial dot field.'},
+    {key:'dotSize',label:'Dot radius',min:.35,max:2.5,step:.05,unit:'px',section:'Guides',description:'Size of individual radial guide dots.'},
+    {key:'guideOpacity',label:'Guide contrast',min:0,max:.7,step:.01,section:'Guides',description:'Contrast of the note and modulation coordinate rings.'},
+    {key:'arcOpacity',label:'Synthesis arc contrast',min:.1,max:1,step:.05,section:'Guides',description:'Visibility of the two draggable width-to-synthesis arcs.'},
+    {key:'paperGrain',label:'Paper grain',min:0,max:.25,step:.01,section:'Paper',description:'Fine static fibre texture on the playing surfaces.'},
+    {key:'paper',label:'Paper colour',kind:'color',section:'Paper',description:'Background of both connected playing fields.'},
+    {key:'ink',label:'Ink colour',kind:'color',section:'Paper',description:'Guides, technical labels and the organic central root bodies.'}
   ]
 };
-
-const hue=(n,v)=>`hsla(${(n+v.prismHue+360)%360},82%,51%,${v.ribbonOpacity})`;
-const origin=(side,w,h)=>({x:w*(side===0?.472:.528),y:h*.64});
-export function carrierMapping(nx,ny,side,aspect=1.5){
-  const ox=side===0?.472:.528,dx=(nx-ox)*aspect*(side===0?-1:1),dy=.64-ny,radius=Math.min(aspect*.43,.64);
-  const radial=clamp(Math.hypot(dx,dy)/radius,0,1),angle=clamp(Math.atan2(dy,Math.max(.005,dx)),-.65,1.25);
-  return side===0?{degree:Math.min(6,Math.floor(radial*7)),octave:clamp(Math.floor((angle+.65)/1.9*3)-1,-1,1),radial,angle}
-    :{ratio:Math.round((.5+radial*7.5)*4+1e-9)/4,index:Math.round(clamp((angle+.65)/1.9*10,0,10)*20)/20,radial,angle};
-}
+const PARAMETERS=[['ratio','RATIO',.25,12],['index','INDEX',0,12],['cutoff','CUTOFF',120,16000],['resonance','RESO',.1,14],['detune','DETUNE',0,35],['echo','ECHO',0,.7],['attack','ATTACK',.005,.8],['release','RELEASE',.05,5]];
+export function carrierMapping(nx,ny,side,aspect=1.5){const ox=side===0?.472:.528,dx=(nx-ox)*aspect*(side===0?-1:1),dy=.64-ny,radius=Math.min(aspect*.43,.64),radial=clamp(Math.hypot(dx,dy)/radius),angle=clamp(Math.atan2(dy,Math.max(.005,dx)),-.65,1.25);return side===0?{degree:Math.min(6,Math.floor(radial*7)),octave:clamp(Math.floor((angle+.65)/1.9*3)-1,-1,1),radial,angle}:{ratio:Math.round((.5+radial*7.5)*4+1e-9)/4,index:Math.round(clamp((angle+.65)/1.9*10,0,10)*20)/20,radial,angle};}
+export function blobPitch(nx,ny){return{degree:Math.min(6,Math.floor(clamp(1-nx)*7)),octave:clamp(Math.floor((1-clamp(ny))*3)-1,-1,1)};}
+export function arcSound(side,value){const t=clamp(value);return side===0?{cutoff:Math.round(160*Math.pow(100,t)),resonance:.4+t*6}:{index:t*12};}
+export function synthesisBlob(index,value){const [key,,lo,hi]=PARAMETERS[index%PARAMETERS.length],t=clamp(value);let result=key==='cutoff'?lo*Math.pow(hi/lo,t):lerp(lo,hi,t);if(key==='ratio')result=Math.round(result*4)/4;return{[key]:result};}
 
 export function mount(host,api){
-  const surface=createSurface(host,{label:'Carrier and modulator. Left: radius selects scale degree, angle selects octave. Right: radius selects modulation ratio, angle selects modulation index.'});
-  const c=surface.ctx,contacts=new Map(),cursor=[{nx:.2,ny:.32,x:0,y:0,vx:0,vy:0},{nx:.8,ny:.29,x:0,y:0,vx:0,vy:0}];
-  let lastNote=api.quantize(2),lastDegree=2,lastOctave=0,initial=true,grain=null,grainKey='',lastStep=-1,previousW=0,previousH=0;
-  const options=()=>({...api.state.sound,ratio:api.state.sound.ratio,index:api.state.sound.index});
-  const updateVoices=()=>{api.audio.configure(options());for(const [id,p]of contacts)if(p.ownsVoice&&(!p.released||api.state.hold))api.noteUpdate('carrier-'+id,p.midi,options());};
-  function move(p,start=false){
-    const hit=contacts.get(p.id);if(!hit)return;
-    hit.nx=clamp(p.nx,.025,.975);hit.ny=clamp(p.ny,.07,.9);hit.at=performance.now()/1000;
-    const dest=cursor[hit.side];dest.nx=hit.nx;dest.ny=hit.ny;
-    const mapped=carrierMapping(hit.nx,hit.ny,hit.side,surface.width/surface.height);
-    if(hit.side===0){lastDegree=mapped.degree;lastOctave=mapped.octave;lastNote=api.quantize(lastDegree,lastOctave);hit.midi=lastNote;}
-    else{api.setSound({ratio:mapped.ratio,index:mapped.index});hit.midi=lastNote;}
-    if(start&&hit.ownsVoice)api.noteOn('carrier-'+p.id,hit.midi,options());
-    updateVoices();api.setStatus(`${api.noteName(lastNote)} · ${api.state.sound.ratio.toFixed(2)}× · I ${api.state.sound.index.toFixed(2)}`);api.save();
+  const surface=createSurface(host,{label:'Carrier blob sequencer and synthesis path. Drag coloured notes on the left. Drag synthesis blobs on the right. Pinch either path or drag its arc to change filter or modulation depth.'}),c=surface.ctx;
+  const cancelNote=id=>{(api.noteCancel||api.noteOff)(id);noteIds.delete(id);};
+  const contacts=new Map(),noteIds=new Set(),ends=[{nx:.18,ny:.3,x:.18,y:.3},{nx:.82,ny:.3,x:.82,y:.3}],offsets=[Array.from({length:8},()=>({x:0,y:0})),Array.from({length:8},()=>({x:0,y:0}))];
+  let layout,active=0,lastNote=api.quantize(0),now=0,grain=null,lastGrain=-1,pinch=[null,null];
+  const overlay=document.createElement('canvas');overlay.style.cssText='position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:2';host.append(overlay);const ui=overlay.getContext('2d');surface.canvas.style.cssText+='position:relative;z-index:0;';
+  let liquidRenderer=null,liquidScene,liquidCamera,liquidMaterial,liquidGeometry,lastLiquidW=0,lastLiquidH=0;
+  try{
+    liquidRenderer=new THREE.WebGLRenderer({alpha:true,premultipliedAlpha:true,antialias:true,powerPreference:'high-performance'});liquidRenderer.setPixelRatio(Math.min(devicePixelRatio||1,1.5));liquidRenderer.setClearColor(0,0);liquidRenderer.outputColorSpace=THREE.SRGBColorSpace;liquidRenderer.autoClear=false;liquidRenderer.domElement.style.cssText='position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1';host.append(liquidRenderer.domElement);
+    liquidScene=new THREE.Scene();liquidCamera=new THREE.OrthographicCamera(-1,1,1,-1,.1,10);liquidCamera.position.z=2;
+    liquidMaterial=new THREE.ShaderMaterial({transparent:true,depthWrite:false,uniforms:{resolution:{value:new THREE.Vector2()},nodes:{value:Array.from({length:9},()=>new THREE.Vector3())},colours:{value:Array.from({length:9},()=>new THREE.Color())},bounds:{value:new THREE.Vector4()},neck:{value:.6},blend:{value:8},opacity:{value:.77},relief:{value:.65},time:{value:0},motion:{value:.55}},vertexShader:'varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',fragmentShader:`precision highp float;varying vec2 vUv;uniform vec2 resolution;uniform vec3 nodes[9],colours[9];uniform vec4 bounds;uniform float neck,blend,opacity,relief,time,motion;
+      float smin(float a,float b,float k){float h=clamp(.5+.5*(b-a)/k,0.,1.);return mix(b,a,h)-k*h*(1.-h);}
+      void main(){vec2 p=vec2(vUv.x,1.-vUv.y)*resolution;if(p.x<bounds.x||p.y<bounds.y||p.x>bounds.z||p.y>bounds.w)discard;float d=1.e5,weight=0.,localRadius=0.;vec3 colour=vec3(0.);
+        for(int i=0;i<9;i++){float sd=length(p-nodes[i].xy)-nodes[i].z;d=smin(d,sd,blend);float w=exp(clamp(-sd/(5.+nodes[i].z*.12),-20.,8.));colour+=colours[i]*w;localRadius+=nodes[i].z*w;weight+=w;}
+        for(int i=0;i<8;i++){vec2 a=nodes[i].xy,b=nodes[i+1].xy,delta=b-a;float u=clamp(dot(p-a,delta)/max(1.,dot(delta,delta)),0.,1.);float radius=mix(nodes[i].z,nodes[i+1].z,u)*(1.-neck*pow(sin(u*3.14159265),.72));float sd=length(p-mix(a,b,u))-radius;d=smin(d,sd,blend*.55);float w=exp(clamp(-sd/(5.+radius*.12),-20.,8.));colour+=mix(colours[i],colours[i+1],u)*w;localRadius+=radius*w;weight+=w;}
+        vec2 satellite=nodes[0].xy+vec2(sin(time*.13)*.18+.7,.72)*nodes[0].z;d=smin(d,length(p-satellite)-nodes[0].z*.3,blend*.7);d+=sin(p.x*.043+p.y*.057+time*.2)*.65*motion;float aa=max(.7,fwidth(d)),alpha=(1.-smoothstep(-aa,aa,d))*opacity;if(alpha<.002)discard;colour/=max(.001,weight);localRadius/=max(.001,weight);
+        float thickness=sqrt(clamp(-d/max(1.,localRadius),0.,1.));vec2 gradient=vec2(dFdx(d),dFdy(d));vec3 normal=normalize(vec3(gradient*1.7,max(.2,thickness)));float diffuse=max(0.,dot(normal,normalize(vec3(-.4,.6,1.)))),specular=pow(max(0.,dot(normal,normalize(vec3(-.25,.6,1.)))),22.);vec3 result=colour*(.64+.36*diffuse)+vec3(.24)*specular*relief;result+=colour*.08*thickness;gl_FragColor=vec4(result,alpha);
+        #include <colorspace_fragment>
+      }`});liquidGeometry=new THREE.PlaneGeometry(2,2);liquidScene.add(new THREE.Mesh(liquidGeometry,liquidMaterial));
+  }catch{liquidRenderer?.dispose();liquidRenderer=null;}
+
+  const getLayout=()=>layout=splitLayout(surface.width,surface.height,api.state.appearance,{pad:12,gap:16,stackPortrait:true,portraitRatio:.95});
+  const root=(side,r)=>{const inset=Math.min(r.w*.24,Math.max(r.w*.115,Math.min(r.w,r.h)*.14*(api.state.appearance.ribbonWidth||1)));return{x:side?inset:r.w-inset,y:r.h*.68};};
+  const point=(side,i,r,smoothed=true)=>{const o=root(side,r),e=ends[side],u=(i+1)/8.7;return{x:lerp(o.x,(smoothed?e.x:e.nx)*r.w,u)+offsets[side][i].x*r.w,y:lerp(o.y,(smoothed?e.y:e.ny)*r.h,u)+offsets[side][i].y*r.h};};
+  const arcValue=side=>side?clamp(api.state.sound.index/12):clamp(Math.log(Math.max(160,api.state.sound.cutoff)/160)/Math.log(100));
+  const arcGeometry=(side,r)=>{const o=root(side,r);return{...o,r:Math.min(r.w*.34,r.h*.32),start:side?-1.15:Math.PI+ .15,span:1};};
+  function locate(p){getLayout();for(let side=0;side<2;side++){const r=side?layout.right:layout.left;if(p.x>=r.x&&p.x<=r.x+r.w&&p.y>=r.y&&p.y<=r.y+r.h)return{side,r,x:p.x-r.x,y:p.y-r.y,nx:(p.x-r.x)/r.w,ny:(p.y-r.y)/r.h};}return null;}
+  function setArc(side,value){api.setSound(arcSound(side,value));api.setStatus(`FC ${Math.round(api.state.sound.cutoff)} Hz · I ${api.state.sound.index.toFixed(2)}`);}
+  function edit(q,p){const r=q.side?getLayout().right:layout.left,x=clamp((p.x-r.x)/r.w,.035,.965),y=clamp((p.y-r.y)/r.h,.1,.88);q.px=p.x;q.py=p.y;
+    const same=[...contacts.values()].filter(a=>a.side===q.side);if(same.length>=2){const a=same[0],b=same[1],distance=Math.hypot(a.px-b.px,a.py-b.py);if(!pinch[q.side])pinch[q.side]={distance:Math.max(20,distance),value:arcValue(q.side)};setArc(q.side,pinch[q.side].value+Math.log(Math.max(10,distance)/pinch[q.side].distance)*.55);return;}
+    if(q.kind==='pinch')return;
+    if(q.kind==='arc'){const a=arcGeometry(q.side,r),angle=Math.atan2(y*r.h-a.y,x*r.w-a.x);let d=angle-a.start;while(d<0)d+=TAU;while(d>TAU)d-=TAU;setArc(q.side,clamp(d/a.span));}
+    else if(q.kind==='blob'){const o=root(q.side,r),e=ends[q.side],u=(q.index+1)/8.7;offsets[q.side][q.index]={x:x-lerp(o.x/r.w,e.nx,u),y:y-lerp(o.y/r.h,e.ny,u)};
+      if(q.side===0){const m=blobPitch(x,y);q.midi=lastNote=api.quantize(m.degree,m.octave);api.noteUpdate('carrier-'+q.id,q.midi,api.state.sound);}else api.setSound(synthesisBlob(q.index,clamp((.87-y)/.75)));}
+    else{ends[q.side].nx=x;ends[q.side].ny=y;if(q.side===0){const m=blobPitch(x,y);q.midi=lastNote=api.quantize(m.degree,m.octave);api.noteUpdate('carrier-'+q.id,q.midi,api.state.sound);}else api.setSound({ratio:Math.round((.25+clamp(x)*11.75)*4)/4});}
+    api.setStatus(`${api.noteName(lastNote)} · R ${api.state.sound.ratio.toFixed(2)} · I ${api.state.sound.index.toFixed(2)}`);
   }
-  const unbind=bindPointers(surface.canvas,{
-    down:p=>{const side=p.nx<.5?0:1,hasCarrier=[...contacts.values()].some(q=>q.ownsVoice&&(!q.released||api.state.hold))||api.audio.snapshot().voices.some(q=>q.level>.001);contacts.set(p.id,{side,ownsVoice:side===0||!hasCarrier,nx:p.nx,ny:p.ny,midi:lastNote,released:false,at:performance.now()/1000});move(p,true);},
-    move:p=>move(p),
-    up:p=>{const q=contacts.get(p.id);if(q){q.released=true;api.noteOff('carrier-'+p.id);}},
-    cancel:p=>{contacts.delete(p.id);api.noteOff('carrier-'+p.id);}
-  });
-  function paper(v,w,h){
-    c.fillStyle=v.paper;c.fillRect(0,0,w,h);
-    if(v.paperGrain<=0)return;
-    const key=v.paperGrain.toFixed(2);if(key!==grainKey){grainKey=key;grain=document.createElement('canvas');grain.width=grain.height=96;const g=grain.getContext('2d'),image=g.createImageData(96,96);let s=42;for(let i=0;i<image.data.length;i+=4){s=(s*1664525+1013904223)>>>0;image.data[i]=image.data[i+1]=image.data[i+2]=s&1?255:0;image.data[i+3]=(s>>>24)*v.paperGrain;}g.putImageData(image,0,0);}
-    c.fillStyle=c.createPattern(grain,'repeat');c.fillRect(0,0,w,h);
+  const unbind=bindPointers(surface.canvas,{down:p=>{const hit=locate(p);if(!hit)return false;const {side,r,x,y}=hit,a=arcGeometry(side,r);let kind='path',index=-1,distance=Infinity;
+      for(let i=0;i<8;i++){const b=point(side,i,r),d=Math.hypot(x-b.x,y-b.y);if(d<distance){distance=d;index=i;}}const markerAngle=a.start+a.span*arcValue(side),markerDistance=Math.hypot(x-a.x-Math.cos(markerAngle)*a.r,y-a.y-Math.sin(markerAngle)*a.r),arcAngle=((Math.atan2(y-a.y,x-a.x)-a.start)%TAU+TAU)%TAU;if(markerDistance<14)kind='arc';else if(distance<Math.max(20,Math.min(r.w,r.h)*.065))kind='blob';else if(arcAngle<=a.span+.05&&Math.abs(Math.hypot(x-a.x,y-a.y)-a.r)<12)kind='arc';
+      const m=blobPitch(hit.nx,hit.ny),q={id:p.id,side,kind,index,midi:api.quantize(m.degree,m.octave),px:p.x,py:p.y,originalSound:{...api.state.sound},originalOffset:index>=0?{...offsets[side][index]}:null,originalEnd:{...ends[side]}};contacts.set(p.id,q);const same=[...contacts.values()].filter(a=>a.side===side);if(same.length===2){const first=same[0],keys=first.kind==='blob'&&side?[PARAMETERS[first.index][0]]:first.kind==='arc'?(side?['index']:['cutoff','resonance']):side?['ratio']:[];api.setSound(Object.fromEntries(keys.map(key=>[key,first.originalSound[key]])));if(first.kind==='blob'&&!side)offsets[side][first.index]=first.originalOffset;if(first.kind==='path')Object.assign(ends[side],first.originalEnd);for(const a of same){cancelNote('carrier-'+a.id);a.kind='pinch';}}else if(side===0&&kind!=='arc'){noteIds.add('carrier-'+p.id);api.noteOn('carrier-'+p.id,q.midi,api.state.sound);}edit(q,p);},move:p=>{const q=contacts.get(p.id);if(q)edit(q,p);},up:p=>{const q=contacts.get(p.id);if(q){if(q.side===0&&q.kind!=='arc')api.noteOff('carrier-'+p.id);pinch[q.side]=null;}contacts.delete(p.id);api.save();},cancel:p=>{const q=contacts.get(p.id);if(q){cancelNote('carrier-'+p.id);pinch[q.side]=null;}contacts.delete(p.id);}});
+  function organic(x,y,rx,ry,hue,phase,v,ink=false){c.beginPath();for(let i=0;i<=40;i++){const a=i/40*TAU,w=1+Math.sin(a*3+phase)*.09+Math.sin(a*5-phase*.7)*.045;const px=x+Math.cos(a)*rx*w,py=y+Math.sin(a)*ry*w;i?c.lineTo(px,py):c.moveTo(px,py);}c.closePath();const grad=c.createRadialGradient(x-rx*.28,y-ry*.35,1,x,y,Math.max(rx,ry)*1.3);if(ink){grad.addColorStop(0,'#726358');grad.addColorStop(.42,v.ink);grad.addColorStop(1,'#151c1a');}else{grad.addColorStop(0,`hsla(${hue},87%,${77+v.blobRelief*8}%,${v.ribbonOpacity})`);grad.addColorStop(.36,`hsla(${hue},79%,58%,${v.ribbonOpacity})`);grad.addColorStop(1,`hsla(${hue-17},84%,${33-v.blobRelief*6}%,${v.ribbonOpacity})`);}c.fillStyle=grad;c.fill();c.strokeStyle=rgba(v.ink,ink?.7:.18);c.lineWidth=.55;c.stroke();}
+  function pane(side,r,v,t,snap){c.save();c.translate(r.x,r.y);ui.save();ui.translate(r.x,r.y);c.beginPath();c.rect(0,0,r.w,r.h);c.clip();const o=root(side,r),radius=Math.min(r.w*.93,r.h*.78),spacing=v.dotSpacing;
+    c.fillStyle=rgba(v.ink,.56);c.beginPath();for(let rad=spacing;rad<radius;rad+=spacing){const n=Math.round(TAU*rad/spacing);for(let i=0;i<n;i++){const a=i/n*TAU,x=o.x+Math.cos(a)*rad,y=o.y+Math.sin(a)*rad,sz=v.dotSize*(.55+rad/radius*.55);if(y>65&&y<r.h-35){c.moveTo(x+sz,y);c.arc(x,y,sz,0,TAU);}}}c.fill();
+    for(let i=1;i<=7;i++){c.strokeStyle=rgba(v.ink,v.guideOpacity*.65);c.lineWidth=.6;c.beginPath();c.arc(o.x,o.y,radius*i/7,0,TAU);c.stroke();}
+    const points=Array.from({length:8},(_,i)=>point(side,i,r)),spread=.65+arcValue(side)*1.25,scale=Math.min(r.w/500,r.h/400),radiusBase=(13+spread*13)*v.ribbonWidth*Math.max(.55,scale),energy=clamp(snap.rms*6);
+    // Overlapping soft bodies form the path; no triangular ribbon mesh remains.
+    if(!liquidRenderer)for(let i=0;i<points.length;i++){const p=points[i],prev=i?points[i-1]:o,dist=Math.hypot(p.x-prev.x,p.y-prev.y),hue=(side?82+i*23:72-i*18)+v.prismHue;
+      const grad=c.createLinearGradient(prev.x,prev.y,p.x,p.y);grad.addColorStop(0,`hsla(${hue-12},78%,52%,${v.ribbonOpacity*.8})`);grad.addColorStop(.5,`hsla(${hue},84%,66%,${v.ribbonOpacity})`);grad.addColorStop(1,`hsla(${hue+12},76%,48%,${v.ribbonOpacity*.8})`);c.strokeStyle=grad;c.lineWidth=radiusBase*(1.05+v.blobOverlap*.7);c.lineCap='round';c.beginPath();c.moveTo(prev.x,prev.y);const bend=Math.sin(i+t*.2)*radiusBase*.12*v.ribbonMotion;c.bezierCurveTo(lerp(prev.x,p.x,.33),lerp(prev.y,p.y,.33)+bend,lerp(prev.x,p.x,.67),lerp(prev.y,p.y,.67)-bend,p.x,p.y);c.stroke();c.lineCap='butt';}
+    for(let i=7;i>=0;i--){const p=points[i],hue=(side?82+i*23:72-i*18)+v.prismHue,pulse=!side&&api.state.playing&&i===active?1:0,rr=radiusBase*(.8+.15*Math.sin(i*1.7+t*.2*v.ribbonMotion));if(!liquidRenderer)organic(p.x,p.y,rr*(1.08+pulse*.18),rr*.9,hue,t*.3*v.ribbonMotion+i,v);
+      if(pulse){c.strokeStyle=rgba('#fff',.9);c.lineWidth=2;c.beginPath();c.arc(p.x,p.y,rr+4+energy*4,0,TAU);c.stroke();}
+      const note=blobPitch(p.x/r.w,p.y/r.h),text=side?PARAMETERS[i][1]:api.noteName(api.quantize(note.degree,note.octave));label(ui,text,p.x,p.y-rr-10,rgba(v.ink,.8),Math.min(r.w,r.h)<300?7:9,'center');const key=side?PARAMETERS[i][0]:null,value=key?api.state.sound[key]:0,readout=!side?String(i+1).padStart(2,'0'):key==='cutoff'?(value/1000).toFixed(1)+'k':key==='ratio'?value.toFixed(2)+'×':key==='echo'?Math.round(value*100)+'%':key==='attack'||key==='release'?(value<1?Math.round(value*1000)+'m':value.toFixed(1)+'s'):key==='detune'?Math.round(value)+'c':value.toFixed(1);label(ui,readout,p.x,p.y,rgba(v.ink,.7),8,'center');}
+    if(!liquidRenderer){organic(o.x,o.y,radiusBase*1.15,radiusBase*.9,0,t*.35,v,true);c.fillStyle=rgba('#fff9e4',.7);c.beginPath();c.ellipse(o.x-5,o.y-5,4,2,-.4,0,TAU);c.fill();}
+    if(liquidRenderer){const u=liquidMaterial.uniforms,all=[o,...points],radii=all.map((p,i)=>{if(i===0)return radiusBase*1.02;const previous=all[i-1],next=all[Math.min(all.length-1,i+1)],length=Math.hypot(p.x-previous.x,p.y-previous.y)+Math.hypot(next.x-p.x,next.y-p.y),reference=Math.max(25,Math.hypot(points[7].x-o.x,points[7].y-o.y)/4);return radiusBase*(.95+.05*Math.sin(i*1.7+t*.2*v.ribbonMotion))/Math.sqrt(1+Math.max(0,length/reference-.8)*.38);});let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;for(let i=0;i<9;i++){u.nodes.value[i].set(all[i].x,all[i].y,radii[i]);if(i===0)u.colours.value[i].set(v.ink);else u.colours.value[i].setStyle(`hsl(${((side?82+(i-1)*23:72-(i-1)*18)+v.prismHue+360)%360},80%,54%)`);const pad=radii[i]*1.6+15;minX=Math.min(minX,all[i].x-pad);minY=Math.min(minY,all[i].y-pad);maxX=Math.max(maxX,all[i].x+pad);maxY=Math.max(maxY,all[i].y+pad);}u.resolution.value.set(r.w,r.h);u.bounds.value.set(minX,minY,maxX,maxY);u.neck.value=.82-v.blobOverlap*.5;u.blend.value=radiusBase*.24;u.opacity.value=v.ribbonOpacity;u.relief.value=v.blobRelief;u.time.value=t;u.motion.value=v.ribbonMotion;liquidRenderer.setViewport(r.x,surface.height-r.y-r.h,r.w,r.h);liquidRenderer.setScissor(r.x,surface.height-r.y-r.h,r.w,r.h);liquidRenderer.setScissorTest(true);liquidRenderer.render(liquidScene,liquidCamera);}
+    const a=arcGeometry(side,r),val=arcValue(side);ui.lineWidth=1;ui.strokeStyle=rgba(v.ink,v.arcOpacity*.45);ui.beginPath();ui.arc(a.x,a.y,a.r,a.start,a.start+a.span);ui.stroke();ui.strokeStyle=rgba(v.ink,v.arcOpacity);ui.lineWidth=3;ui.beginPath();ui.arc(a.x,a.y,a.r,a.start,a.start+a.span*val);ui.stroke();const an=a.start+a.span*val,ax=a.x+Math.cos(an)*a.r,ay=a.y+Math.sin(an)*a.r;ui.fillStyle=v.ink;ui.beginPath();ui.arc(ax,ay,5,0,TAU);ui.fill();label(ui,side?`I ${api.state.sound.index.toFixed(2)}`:`FC ${(api.state.sound.cutoff/1000).toFixed(2)}k`,ax,ay-14,v.ink,9,'center');
+    label(ui,side?'SYNTHESIS / 08 PARAMETERS':'SEQUENCE / 08 POSITION NOTES',8,17,rgba(v.ink,.63),r.w<380?8:10);label(ui,side?`${api.state.sound.ratio.toFixed(2)} : 1`:api.noteName(lastNote),8,43,v.ink,r.h<300?20:28);label(ui,side?'PINCH → FM INDEX':'PINCH → FILTER / Q',r.w-8,r.h-16,rgba(v.ink,.55),8,'right');label(ui,side?`Q ${api.state.sound.resonance.toFixed(2)}`:`STEP ${String(active+1).padStart(2,'0')} / 08`,8,r.h-16,rgba(v.ink,.7),9);c.restore();ui.restore();
   }
-  function guides(v,w,h){
-    const spacing=v.dotSpacing;
-    // The guide points belong to the radial geometry on each playing half.
-    for(let side=0;side<2;side++){
-      const o=origin(side,w,h),radius=Math.min(w*.48,h*.8);c.save();c.beginPath();c.rect(side?w*.5:0,64,w*.5,h-114);c.clip();c.fillStyle=rgba(v.ink,.7);c.beginPath();
-      for(let r=spacing;r<radius;r+=spacing){const steps=Math.max(12,Math.round(TAU*r/spacing)),size=v.dotSize*(.55+.65*r/radius);for(let k=0;k<steps;k++){const a=k/steps*TAU,x=o.x+Math.cos(a)*r,y=o.y+Math.sin(a)*r;c.moveTo(x+size,y);c.arc(x,y,size,0,TAU);}}c.fill();c.restore();
-    }
-    c.strokeStyle=rgba(v.ink,v.guideOpacity);c.lineWidth=.65;
-    for(let side=0;side<2;side++){
-      const o=origin(side,w,h),radius=Math.min(w*.43,h*.64);c.save();c.beginPath();c.rect(side?w*.5:0,54,w*.5,h-100);c.clip();
-      for(let i=1;i<=7;i++){c.beginPath();c.arc(o.x,o.y,radius*i/7,0,TAU);c.stroke();}
-      for(let i=0;i<9;i++){const a=-Math.PI*.54+i*Math.PI*.13;const dx=Math.cos(a)*radius*(side?1:-1),dy=Math.sin(a)*radius;line(c,[[o.x,o.y],[o.x+dx,o.y+dy]],rgba(v.ink,v.guideOpacity*.5),.6);}
-      c.restore();
-      const p=cursor[side],selectedRadius=Math.min(radius,Math.hypot(p.x-o.x,p.y-o.y));c.save();c.beginPath();c.rect(side?w*.5:0,64,w*.5,h-114);c.clip();c.strokeStyle=rgba(v.ink,Math.min(.75,v.guideOpacity*2.3));c.lineWidth=1;c.beginPath();c.arc(o.x,o.y,selectedRadius,0,TAU);c.stroke();c.restore();
-    }
-    line(c,[[w*.5,25],[w*.5,h-24]],rgba(v.ink,.1),.6);
-    for(let i=0;i<7;i++){const x=w*.09+i*w*.052;label(c,String(i+1),x,h-48,rgba(v.ink,i===lastDegree?.85:.34),8,'center');}
-  }
-  function ribbon(side,v,w,h,t,energy){
-    const o=origin(side,w,h),p=cursor[side],dx=p.x-o.x,dy=p.y-o.y,len=Math.max(1,Math.hypot(dx,dy)),normal={x:-dy/len,y:dx/len};
-    const width=Math.min(w*.033,h*.056)*v.ribbonWidth;
-    const point=(s,edge)=>{
-      const impulse=clamp((p.vx*normal.x+p.vy*normal.y)*.02,-40,40);
-      const sway=Math.sin(s*Math.PI)*(Math.sin(s*10-t*1.2+side)*v.ribbonMotion*(2+energy*6)-impulse);
-      const irregular=.1*Math.sin(s*31+side*3)+.06*Math.sin(s*59+side+t*.25)*Math.sin(s*Math.PI);const spread=(5+width*(1-Math.exp(-s*15))*(.84+.1*Math.sin(s*9+side)+irregular))*edge;
-      return {x:o.x+dx*s+normal.x*(spread+sway),y:o.y+dy*s+normal.y*(spread+sway)};
-    };
-    c.save();
-    // Layered, nearly parallel prismatic laminations; the black root blends
-    // into the material instead of opening into a triangular fan.
-    for(let band=0;band<6;band++)for(let j=0;j<42;j++){
-      const edge=-1+band/3,next=-1+(band+1)/3,s=j/42,n=(j+1)/42,a=point(s,edge),b=point(n,edge),d=point(n,next),e=point(s,next);
-      const shade=47+band*2.4+Math.sin(j*.55+band)*4,hh=66+s*(side?215:-130)+band*3+v.prismHue;
-      c.fillStyle=`hsla(${hh},84%,${shade}%,${v.ribbonOpacity*(.72+.28*Math.sin((band+.5)/6*Math.PI))})`;c.beginPath();c.moveTo(a.x,a.y);c.lineTo(b.x,b.y);c.lineTo(d.x,d.y);c.lineTo(e.x,e.y);c.closePath();c.fill();
-      if((j+band)%7===0){c.strokeStyle=rgba(v.ink,.06);c.lineWidth=.45;c.beginPath();c.moveTo(a.x,a.y);c.lineTo(e.x,e.y);c.stroke();}
-    }
-    const rootGradient=c.createLinearGradient(o.x,o.y,o.x+dx*.2,o.y+dy*.2);rootGradient.addColorStop(0,rgba(v.ink,.96));rootGradient.addColorStop(.7,rgba(v.ink,.62));rootGradient.addColorStop(1,rgba(v.ink,0));c.fillStyle=rootGradient;c.beginPath();for(let j=0;j<=20;j++){const a=point(j/100,-1);j?c.lineTo(a.x,a.y):c.moveTo(a.x,a.y);}for(let j=20;j>=0;j--){const a=point(j/100,1);c.lineTo(a.x,a.y);}c.closePath();c.fill();
-    for(let j=0;j<11;j++){const s=.08+j*.075,edge=(j%2?1:-1)*(1.27+.16*Math.sin(j)),a=point(s,edge),r=(3.8+Math.sin(j*1.8)*1.7+energy)*v.ribbonWidth;c.fillStyle=hue(66+s*(side?215:-130),v);c.beginPath();c.ellipse(a.x,a.y,r*1.2,r,Math.atan2(dy,dx),0,TAU);c.fill();c.fillStyle=rgba('#ffffff',.45);c.beginPath();c.arc(a.x-r*.25,a.y-r*.25,r*.25,0,TAU);c.fill();}
-    c.strokeStyle=rgba(v.ink,.35);c.lineWidth=.7;
-    for(const edge of [-1,1]){c.beginPath();for(let i=0;i<=70;i++){const p=point(i/70,edge);i?c.lineTo(p.x,p.y):c.moveTo(p.x,p.y);}c.stroke();}
-    for(let j=0;j<4;j++){c.strokeStyle=rgba('#ffffff',.3);c.beginPath();for(let i=0;i<=70;i++){const p=point(i/70,Math.sin(i/9+t*1.4+j)*.3+(j-1.5)*.36);i?c.lineTo(p.x,p.y):c.moveTo(p.x,p.y);}c.stroke();}
-    c.fillStyle=v.ink;c.beginPath();c.ellipse(o.x,o.y,15+energy*3,11+energy*2,Math.atan2(dy,dx),0,TAU);c.fill();
-    c.fillStyle='#fff';c.beginPath();c.arc(o.x-3,o.y-3,2.2,0,TAU);c.fill();
-    c.strokeStyle=rgba(v.ink,.75);c.lineWidth=1;c.beginPath();c.arc(p.x,p.y,9+energy*3,0,TAU);c.stroke();
-    line(c,[[p.x-15,p.y],[p.x-5,p.y]],rgba(v.ink,.7),.8);line(c,[[p.x+5,p.y],[p.x+15,p.y]],rgba(v.ink,.7),.8);
-    line(c,[[p.x,p.y-15],[p.x,p.y-5]],rgba(v.ink,.7),.8);line(c,[[p.x,p.y+5],[p.x,p.y+15]],rgba(v.ink,.7),.8);
-    // A direction arrow follows the true gesture axis.
-    const ax=o.x+dx*.75+normal.x*(width*.9+14),ay=o.y+dy*.75+normal.y*(width*.9+14);
-    line(c,[[o.x+dx*.3+normal.x*(width*.6+14),o.y+dy*.3+normal.y*(width*.6+14)],[ax,ay]],rgba(v.ink,.65),1);
-    c.beginPath();c.moveTo(ax,ay);c.lineTo(ax-dx/len*9+normal.x*3,ay-dy/len*9+normal.y*3);c.lineTo(ax-dx/len*9-normal.x*3,ay-dy/len*9-normal.y*3);c.fillStyle=v.ink;c.fill();
-    c.restore();
-  }
-  return {
-    frame(t,dt){
-      if(api.reducedMotion)t=0;
-      surface.resize();const w=surface.width,h=surface.height;if(!w||!h)return;
-      const v={...definition.defaultAppearance,...api.state.appearance},snap=api.audio.snapshot(),energy=clamp(snap.rms*5,0,1);if(![...contacts.values()].some(p=>!p.released)){const sounding=snap.voices.filter(v=>v.level>.001).sort((a,b)=>b.started-a.started)[0];if(sounding)lastNote=sounding.midi;}paper(v,w,h);guides(v,w,h);
-      if(initial){for(const p of cursor){p.x=p.nx*w;p.y=p.ny*h;}initial=false;}else if(previousW&&previousH&&(previousW!==w||previousH!==h)){for(const p of cursor){p.x*=w/previousW;p.y*=h/previousH;p.vx*=w/previousW;p.vy*=h/previousH;}}previousW=w;previousH=h;
-      for(const p of cursor){const targetX=p.nx*w,targetY=p.ny*h;p.vx+=(targetX-p.x)*v.tension*v.tension*dt;p.vy+=(targetY-p.y)*v.tension*v.tension*dt;const damp=Math.exp(-v.damping*dt);p.vx*=damp;p.vy*=damp;p.x+=p.vx*dt;p.y+=p.vy*dt;}
-      // These curves expose the current FM coupling, rather than a separate clock.
-      const l=origin(0,w,h),r=origin(1,w,h);c.save();c.strokeStyle=rgba(v.ink,v.coupling*(.12+energy*.22));c.lineWidth=.65;
-      const index=api.state.sound.index,ratio=api.state.sound.ratio;
-      for(let k=0;k<7;k++){c.beginPath();for(let j=0;j<=70;j++){const f=j/70,x=l.x-70+f*(r.x-l.x+140),y=l.y+(k-3)*6+Math.sin(f*TAU*ratio+t*2)*Math.sin(f*Math.PI)*(3+index*1.8);j?c.lineTo(x,y):c.moveTo(x,y);}c.stroke();}c.restore();
-      ribbon(0,v,w,h,t,energy);ribbon(1,v,w,h,t,energy);
-      const small=w<650,sz=small?8:10;
-      label(c,'CARRIER',22,24,rgba(v.ink,.55),sz);label(c,api.noteName(lastNote),22,57,v.ink,small?23:32);
-      label(c,'MODULATOR',w-22,24,rgba(v.ink,.55),sz,'right');label(c,`${Number(ratio).toFixed(2)}×`,w-22,57,v.ink,small?23:32,'right');
-      label(c,`DEG ${lastDegree+1}  OCT ${lastOctave>=0?'+':''}${lastOctave}`,22,h-24,rgba(v.ink,.65),sz);
-      label(c,`INDEX ${Number(index).toFixed(2)}`,w-22,h-24,rgba(v.ink,.65),sz,'right');
-      label(c,'FM',w*.5,h*.64+43,rgba(v.ink,.42),8,'center');
-      const step=snap.step??0;for(let i=0;i<16;i++){const x=w*.38+i*w*.016;c.fillStyle=rgba(v.ink,api.state.playing&&i===step?.75:.16);c.fillRect(x,h-31,3,api.state.playing&&i===step?10:3);}
-      for(const [id,p]of contacts)if(p.released&&!api.state.hold&&!snap.voices.some(q=>q.id==='carrier-'+id&&q.level>.001))contacts.delete(id);
-    },
-    onStep(step,when){lastStep=step;const offsets=[0,2,4,6,4,2,1,3];const midi=api.quantize((lastDegree+offsets[step%8])%7,lastOctave);api.audio.pulse('carrier-step-'+step,midi,options(),when,60/api.state.bpm*.38);},
-    update(){updateVoices();},
-    cancel(){for(const [id]of contacts)api.noteOff('carrier-'+id);contacts.clear();},
-    getData(){return{cursor:cursor.map(p=>({nx:p.nx,ny:p.ny})),degree:lastDegree,octave:lastOctave};},
-    setData(data){if(Array.isArray(data?.cursor))for(let i=0;i<2;i++){const p=data.cursor[i];if(Number.isFinite(p?.nx)&&Number.isFinite(p?.ny)){cursor[i].nx=clamp(p.nx,.02,.98);cursor[i].ny=clamp(p.ny,.07,.9);}}if(Number.isInteger(data?.degree))lastDegree=clamp(data.degree,0,6);if(Number.isInteger(data?.octave))lastOctave=clamp(data.octave,-1,1);lastNote=api.quantize(lastDegree,lastOctave);initial=true;},
-    destroy(){unbind();for(const [id]of contacts)api.noteOff('carrier-'+id);contacts.clear();surface.destroy();}
-  };
+  return{frame(t,dt){now=t;surface.resize();getLayout();if(overlay.width!==surface.canvas.width||overlay.height!==surface.canvas.height){overlay.width=surface.canvas.width;overlay.height=surface.canvas.height;ui.setTransform(surface.dpr,0,0,surface.dpr,0,0);}ui.clearRect(0,0,surface.width,surface.height);if(liquidRenderer){if(lastLiquidW!==surface.width||lastLiquidH!==surface.height){liquidRenderer.setSize(surface.width,surface.height,false);lastLiquidW=surface.width;lastLiquidH=surface.height;}liquidRenderer.setScissorTest(false);liquidRenderer.clear();}const v={...definition.defaultAppearance,...api.state.appearance},snap=api.audio.snapshot();c.fillStyle=v.paper;c.fillRect(0,0,surface.width,surface.height);if(v.paperGrain>0){if(lastGrain!==v.paperGrain){lastGrain=v.paperGrain;grain=document.createElement('canvas');grain.width=grain.height=64;const g=grain.getContext('2d'),im=g.createImageData(64,64);let seed=9;for(let i=0;i<im.data.length;i+=4){seed=(seed*1664525+1013904223)>>>0;im.data[i]=im.data[i+1]=im.data[i+2]=seed&1?255:0;im.data[i+3]=(seed>>>24)*v.paperGrain;}g.putImageData(im,0,0);}c.fillStyle=c.createPattern(grain,'repeat');c.fillRect(0,0,surface.width,surface.height);}
+      const ease=1-Math.exp(-dt*v.tension*v.tension/(v.damping+1));for(const e of ends){e.x=lerp(e.x,e.nx,ease);e.y=lerp(e.y,e.ny,ease);}for(const id of noteIds)if(!api.state.hold&&![...contacts.values()].some(q=>'carrier-'+q.id===id)&&!snap.voices.some(v=>v.id===id))noteIds.delete(id);active=(snap.step||0)%8;const voice=snap.voices.filter(v=>v.level>.001).sort((a,b)=>b.started-a.started)[0];if(voice)lastNote=voice.midi;const left=root(0,layout.left),right=root(1,layout.right);left.x+=layout.left.x;left.y+=layout.left.y;right.x+=layout.right.x;right.y+=layout.right.y;for(let k=0;k<5;k++){const pts=[];for(let j=0;j<=35;j++){const u=j/35;pts.push([lerp(left.x,right.x,u),lerp(left.y,right.y,u)+Math.sin(u*TAU*api.state.sound.ratio+t)*(k-2)*3]);}line(c,pts,rgba(v.ink,v.coupling*.25),.6);}pane(0,layout.left,v,api.reducedMotion?0:t,snap);pane(1,layout.right,v,api.reducedMotion?0:t,snap);},
+    onStep(step,when){getLayout();const i=step%8,p=point(0,i,layout.left,false),m=blobPitch(p.x/layout.left.w,p.y/layout.left.h);const midi=api.quantize(m.degree,m.octave);api.audio.pulse('carrier-step-'+i,midi,api.state.sound,when,60/api.state.bpm*.42);},
+    update(){api.audio.configure(api.state.sound);},cancel(){for(const id of noteIds)cancelNote(id);contacts.clear();pinch=[null,null];},getData(){return{ends:ends.map(({nx,ny})=>({nx,ny})),offsets};},setData(data){if(Array.isArray(data?.ends))for(let i=0;i<2;i++){const e=data.ends[i];if(Number.isFinite(e?.nx)&&Number.isFinite(e?.ny))Object.assign(ends[i],{nx:clamp(e.nx,.03,.97),ny:clamp(e.ny,.1,.88),x:e.nx,y:e.ny});}if(Array.isArray(data?.offsets))for(let s=0;s<2;s++)for(let i=0;i<8;i++){const p=data.offsets[s]?.[i];if(Number.isFinite(p?.x)&&Number.isFinite(p?.y))offsets[s][i]={x:clamp(p.x,-.5,.5),y:clamp(p.y,-.5,.5)};}},destroy(){unbind();for(const id of noteIds)cancelNote(id);if(liquidRenderer){liquidGeometry.dispose();liquidMaterial.dispose();liquidRenderer.dispose();liquidRenderer.forceContextLoss();liquidRenderer.domElement.remove();}overlay.remove();surface.destroy();}};
 }

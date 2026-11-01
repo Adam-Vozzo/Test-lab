@@ -19,6 +19,7 @@ function fixture({suspended=false,maxVoices=16,audioSession,resumeMode='normal',
     disconnect() {this.disconnected=true;this.connections=[];}
     start(time) {assert.equal(this.started,undefined);this.started=time;}
     stop(time) {this.stopped=time??now;}
+    setPeriodicWave(wave) {this.periodicWave=wave;this.type='custom';}
     getFloatTimeDomainData(array) {array.fill(this.sample??0);}
     getByteFrequencyData(array) {array.fill(this.spectral??0);}
   }
@@ -27,6 +28,7 @@ function fixture({suspended=false,maxVoices=16,audioSession,resumeMode='normal',
     get currentTime() {return now;}
     createGain() {const node=new Node();this.nodes.push(node);return node;}
     createOscillator() {return this.createGain();}
+    createPeriodicWave(real,imag,options) {return {real,imag,options};}
     createBiquadFilter() {return this.createGain();}
     createWaveShaper() {return this.createGain();}
     createStereoPanner() {return this.createGain();}
@@ -197,5 +199,27 @@ test('meter reads actual post-master output, including external engines, indepen
   const f=fixture();await f.audio.start();f.audio._analyser.sample=.125;f.audio._analyser.spectral=128;
   let snapshot=f.audio.snapshot();assert.equal(snapshot.voices.length,0);assert.equal(snapshot.rms,.125);assert.ok(Math.abs(snapshot.frequency[10]-128/255)<1e-7);
   f.audio.noteOn('a',60);f.audio._analyser.sample=0;snapshot=f.audio.snapshot();assert.equal(snapshot.rms,0);
-  assert.ok(f.audio.output.connections.includes(f.audio._compressor));assert.ok(f.audio._master.connections.includes(f.audio._analyser));assert.ok(f.audio._master.connections.includes(f.audio.context.destination));assert.deepEqual(f.audio._analyser.connections,[],'the analyser is never in the speaker path');await f.audio.dispose();
+  assert.ok(f.audio.output.connections.includes(f.audio._eqLow));assert.ok(f.audio._eqHigh.connections.includes(f.audio._compressor));assert.ok(f.audio._master.connections.includes(f.audio._analyser));assert.ok(f.audio._master.connections.includes(f.audio.context.destination));assert.deepEqual(f.audio._analyser.connections,[],'the analyser is never in the speaker path');await f.audio.dispose();
+});
+
+test('wavetable edits replace the held periodic waveform without stealing its voice or FM graph',async()=>{
+  const f=fixture();await f.audio.start();f.audio.noteOn('table',60,{waveform:'wavetable',tablePosition:0,tableWarp:0});const voice=f.audio._voices[0],wave=voice.carrier.periodicWave;
+  assert.equal(voice.carrier.type,'custom');assert.equal(wave.options.disableNormalization,true);assert.equal(wave.real[0],0);assert.equal(wave.imag[0],0);
+  f.audio.configure({tablePosition:.6,tableWarp:.8});assert.strictEqual(f.audio._voices[0],voice);assert.notStrictEqual(voice.carrier.periodicWave,wave);assert.equal(voice.carrier.frequency.value,midiFrequency(60));
+  for(let i=0;i<90;i++)f.audio.configure({tablePosition:i/90});assert.ok(f.audio._periodicWaves.size<=64);
+  f.audio.configure({waveform:'triangle'});assert.equal(voice.carrier.type,'triangle');await f.audio.dispose();assert.equal(f.audio._periodicWaves.size,0);
+});
+
+test('EQ processes oscillator and external output before both the dry and echo paths and resets on switch',async()=>{
+  const f=fixture();await f.audio.start();const a=f.audio;
+  assert.deepEqual(a.output.connections,[a._eqLow]);assert.deepEqual(a._eqLow.connections,[a._eqMid]);assert.deepEqual(a._eqMid.connections,[a._eqHigh]);assert.ok(a._eqHigh.connections.includes(a._delay));
+  a.configure({eqLowGain:12,eqMidGain:-9,eqMidFreq:2400,eqMidQ:3,eqHighGain:99});assert.equal(a._eqLow.gain.value,12);assert.equal(a._eqMid.gain.value,-9);assert.equal(a._eqMid.frequency.value,2400);assert.equal(a._eqMid.Q.value,3);assert.equal(a._eqHigh.gain.value,18);
+  a.configure({waveform:'sine'},{replace:true});assert.equal(a._eqLow.gain.value,0);assert.equal(a._eqMid.gain.value,0);assert.equal(a._eqHigh.gain.value,0);await a.dispose();assert.ok(a._eqLow.disconnected);
+});
+
+test('cancelled contacts bypass Hold and cancel future arp voices without releasing other sources',async()=>{
+ const f=fixture();await f.audio.start();f.audio.setPerformance({hold:true,arp:true,bpm:120});
+ f.audio.noteOn('cancelled',60);f.audio.noteOn('latched',64);f.audio.noteOff('latched');f.audio.noteOn('physical',67);f.advance(.2);
+ f.audio.noteOff('cancelled',{force:true});assert.equal(f.audio.sources.has('cancelled'),false);assert.equal(f.audio.sources.get('latched').physical,false);assert.equal(f.audio.sources.get('physical').physical,true);
+ const time=f.audio.now;f.advance(.6);assert.ok(f.audio._voices.filter(v=>v.id==='cancelled').every(v=>v.start<=time&&v.releaseAt!==null));assert.ok(f.audio.sources.has('latched'));assert.ok(f.audio.sources.has('physical'));await f.audio.dispose();
 });

@@ -1,7 +1,8 @@
+import {wavetableCoefficients} from './wavetable.js';
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const number = (value, fallback, min, max) => Number.isFinite(Number(value)) ? clamp(Number(value), min, max) : fallback;
-const WAVES = new Set(['sine', 'triangle', 'sawtooth', 'square']);
-const DEFAULTS = Object.freeze({waveform:'triangle',attack:.018,decay:.18,sustain:.65,release:.55,cutoff:6500,resonance:1.2,gain:.7,pan:0,ratio:2,index:0,detune:0,crush:0,glide:.025,echo:.08,delayTime:.23,feedback:.18});
+const WAVES = new Set(['sine', 'triangle', 'sawtooth', 'square', 'wavetable']);
+const DEFAULTS = Object.freeze({waveform:'triangle',tablePosition:.35,tableWarp:0,attack:.018,decay:.18,sustain:.65,release:.55,cutoff:6500,resonance:1.2,gain:.7,pan:0,ratio:2,index:0,detune:0,crush:0,glide:.025,echo:.08,delayTime:.23,feedback:.18,eqLowGain:0,eqLowFreq:160,eqMidGain:0,eqMidFreq:1200,eqMidQ:.7,eqHighGain:0,eqHighFreq:6000});
 export const midiFrequency = midi => 440 * Math.pow(2, (number(midi, 60, 0, 127) - 69) / 12);
 
 /** A small native audio host. Musical source identity is independent of the
@@ -34,6 +35,7 @@ export class CollectionAudio {
     this._nextArp = null; this._arpIndex = 0; this._insideStep = false;
     this._waveform = new Float32Array(512); this._frequency = new Float32Array(256);
     this._spectrumBytes = new Uint8Array(256); this._rms = 0;
+    this._periodicWaves = new Map();
   }
 
   get context() { return this._context; }
@@ -117,13 +119,15 @@ export class CollectionAudio {
     const master = this._master = context.createGain(); master.gain.value = .72;
     const analyser = this._analyser = context.createAnalyser();
     analyser.fftSize = 512; analyser.smoothingTimeConstant = .7;
-    output.connect(compressor); compressor.connect(master);
+    const low=this._eqLow=context.createBiquadFilter(),mid=this._eqMid=context.createBiquadFilter(),high=this._eqHigh=context.createBiquadFilter();
+    low.type='lowshelf';mid.type='peaking';high.type='highshelf';
+    output.connect(low);low.connect(mid);mid.connect(high);high.connect(compressor);compressor.connect(master);
     // Metering observes a parallel branch, exactly as in Signal. Its display
     // processing is never inserted between the music bus and the speakers.
     master.connect(context.destination); master.connect(analyser);
     const delay = this._delay = context.createDelay(1.2);
     const feedback = this._feedback = context.createGain(), wet = this._wet = context.createGain();
-    output.connect(delay); delay.connect(feedback); feedback.connect(delay); delay.connect(wet); wet.connect(compressor);
+    high.connect(delay); delay.connect(feedback); feedback.connect(delay); delay.connect(wet); wet.connect(compressor);
     this._applyEffects();
     this._contextListener = () => {
       if (context.state==='running') { this._wasRunning=true; return; }
@@ -139,6 +143,7 @@ export class CollectionAudio {
     const input = {...this.sound, ...options};
     return {
       waveform: WAVES.has(input.waveform) ? input.waveform : 'triangle',
+      tablePosition:number(input.tablePosition,.35,0,1),tableWarp:number(input.tableWarp,0,0,1),
       attack:number(input.attack,.018,.002,4), decay:number(input.decay,.18,.005,4),
       sustain:number(input.sustain,.65,0,1), release:number(input.release,.55,.015,8),
       cutoff:number(input.cutoff,6500,25,20000), resonance:number(input.resonance,1.2,.1,16),
@@ -163,6 +168,11 @@ export class CollectionAudio {
     this._smooth(this._delay.delayTime, number(this.sound.delayTime,.23,.03,1.1), now, .04);
     this._smooth(this._feedback.gain, number(this.sound.feedback,.18,0,.65), now, .03);
     this._smooth(this._wet.gain, this._muted ? 0 : number(this.sound.echo,.08,0,.6), now, .025);
+    for(const [node,prefix,fallback,min,max]of [[this._eqLow,'eqLow',160,40,500],[this._eqMid,'eqMid',1200,200,5000],[this._eqHigh,'eqHigh',6000,2000,16000]]){
+      this._smooth(node.frequency,Math.min(this._context.sampleRate*.45,number(this.sound[prefix+'Freq'],fallback,min,max)),now,.025);
+      this._smooth(node.gain,number(this.sound[prefix+'Gain'],0,-18,18),now,.025);
+    }
+    this._smooth(this._eqMid.Q,number(this.sound.eqMidQ,.7,.25,8),now,.025);
   }
 
   _smooth(param, value, when=this.now, duration=.015) {
@@ -203,10 +213,10 @@ export class CollectionAudio {
     return true;
   }
 
-  noteOff(id) {
+  noteOff(id,{force=false}={}) {
     id = String(id); const source = this.sources.get(id); if (!source) return;
     source.physical = false;
-    if (this.performance.hold) return;
+    if (this.performance.hold&&!force) return;
     this.sources.delete(id); this._removeSourceVoices(id, this.now);
     if (!this.sources.size) this._nextArp = null;
   }
@@ -310,7 +320,7 @@ export class CollectionAudio {
     const pan = context.createStereoPanner ? context.createStereoPanner() : context.createGain();
     const voice = {id:source.id,generation:source.generation,serial:++this._serial,kind,midi:source.midi,options,start:when,releaseAt:null,releaseLevel:0,releaseDuration:0,stopAt:Infinity,disposed:false,
       carrier,modulator,modulation,filter,shaper,amp,pan,nodes:[carrier,modulator,modulation,filter,shaper,amp,pan],envelope:{attack:options.attack,decay:options.decay,sustain:options.sustain},peak:.17*options.gain*options.velocity};
-    carrier.type = options.waveform; modulator.type = 'sine'; filter.type = 'lowpass';
+    this._setWaveform(voice,options);modulator.type = 'sine'; filter.type = 'lowpass';
     const hz = midiFrequency(source.midi);
     carrier.frequency.setValueAtTime(hz,when); carrier.detune.setValueAtTime(options.detune,when);
     modulator.frequency.setValueAtTime(Math.min(context.sampleRate*.45,hz*options.ratio),when);
@@ -328,6 +338,18 @@ export class CollectionAudio {
     carrier.onended = () => this._destroyVoice(voice);
     carrier.start(when); modulator.start(when);
     return voice;
+  }
+
+  _setWaveform(voice,options){
+    if(options.waveform!=='wavetable'){
+      if(voice.waveKey!==options.waveform){voice.carrier.type=options.waveform;voice.waveKey=options.waveform;}
+      return;
+    }
+    const coefficients=wavetableCoefficients(options.tablePosition,options.tableWarp),key=coefficients.key;
+    if(voice.waveKey===key)return;
+    let wave=this._periodicWaves.get(key);
+    if(!wave){wave=this._context.createPeriodicWave(coefficients.real,coefficients.imag,{disableNormalization:true});this._periodicWaves.set(key,wave);if(this._periodicWaves.size>64)this._periodicWaves.delete(this._periodicWaves.keys().next().value);}
+    voice.carrier.setPeriodicWave(wave);voice.waveKey=key;
   }
 
   _setCrush(voice, value) {
@@ -352,7 +374,7 @@ export class CollectionAudio {
     if (voice.disposed) return;
     const options = this._options(rawOptions), now = Math.max(this.now,voice.start), hz = midiFrequency(midi), before = voice.options;
     voice.midi = midi; voice.options = options;
-    if (voice.carrier.type !== options.waveform) voice.carrier.type = options.waveform;
+    this._setWaveform(voice,options);
     this._smooth(voice.carrier.frequency,hz,now,options.glide);
     this._smooth(voice.carrier.detune,options.detune,now,options.glide);
     this._smooth(voice.modulator.frequency,Math.min(this._context.sampleRate*.45,hz*options.ratio),now,options.glide);
@@ -450,7 +472,8 @@ export class CollectionAudio {
     this._context?.removeEventListener?.('statechange',this._contextListener);
     try { if (this._ownsSessionType && this._audioSession.type==='playback') this._audioSession.type=this._previousSessionType; } catch {}
     if (this._timer!==null) this._clearInterval(this._timer); this._timer=null;
-    for (const node of [this._output,this._compressor,this._master,this._analyser,this._delay,this._feedback,this._wet]) try { node?.disconnect(); } catch {}
+    for (const node of [this._output,this._eqLow,this._eqMid,this._eqHigh,this._compressor,this._master,this._analyser,this._delay,this._feedback,this._wet]) try { node?.disconnect(); } catch {}
+    this._periodicWaves.clear();
     return this._context?.close().catch(() => {});
   }
 }

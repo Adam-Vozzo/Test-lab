@@ -8,6 +8,7 @@ import {GalaxyScene} from './galaxy.js';
 import {enableSecondaryButtonTaps} from './touch-controls.js';
 import {createFloatingPanels} from './floating-panels.js';
 import {createTempoControl} from './tempo-control.js';
+import {enableRangeScrubbing} from './range-scrub.js';
 const UI_FONT = getComputedStyle(document.documentElement).getPropertyValue('--ui-font').trim() || 'monospace';
 
 const $=id=>document.getElementById(id), clamp=(x,a,b)=>Math.min(b,Math.max(a,x)), TAU=Math.PI*2;
@@ -81,7 +82,8 @@ function signalAnchors(){
 const signalField=new SignalField(document.querySelector('.workspace'),{getVisual:()=>state.visual,getPalette:palette,getActivity:activity,getAnchors:signalAnchors});
 scene.setParticleLayerProvider(now=>signalField.updateParticleLayer(now));
 const tempoControl=createTempoControl($('tempo-control'));
-const pwa=setupPWA({isPlaying:()=>state.playing||livePointers.size>0||keys.size>0||state.hold||ringGestures.size>0||galaxy.dragging||floatingPanels.dragging||tempoControl.active,onToast:toast});
+const signalRanges=enableRangeScrubbing();
+const pwa=setupPWA({isPlaying:()=>state.playing||livePointers.size>0||keys.size>0||state.hold||ringGestures.size>0||galaxy.dragging||floatingPanels.dragging||tempoControl.active||signalRanges.active,onToast:toast});
 const appearance=createAppearance($('appearance'),{getVisual:()=>state.visual,setVisual,getLook:()=>state.look,setLook,onToast:toast,getFullscreen:()=>({available:pwa.canFullscreen,active:pwa.fullscreen}),onFullscreen:()=>pwa.toggleFullscreen()});
 
 function updateTransport(){$('play').classList.toggle('playing',state.playing);$('play').setAttribute('aria-label',state.playing?'Pause sequence':'Play sequence');$('play').innerHTML=state.playing?'<svg viewBox="0 0 20 20"><path d="M6 4h3v12H6ZM12 4h3v12h-3Z"/></svg>':'<svg viewBox="0 0 20 20"><path d="M7 4 16 10 7 16Z"/></svg>';$('hold').setAttribute('aria-pressed',state.hold);$('arp').setAttribute('aria-pressed',state.sequence.arp);window.dispatchEvent(new Event('duo:transport'));}
@@ -192,4 +194,4 @@ function drawEnvelope(){const[c,w,h]=fit($('envelope-canvas'));if(!w||!h)return;
  else{c.lineTo(0,h);c.closePath();const g=c.createLinearGradient(0,0,0,h);g.addColorStop(0,hexAlpha(p.accent,.2));g.addColorStop(1,hexAlpha(p.accent,0));c.fillStyle=g;c.fill();}
  $('attack-handle').style.left=ax+'px';$('attack-handle').style.top='5px';$('release-handle').style.left=rx+'px';$('release-handle').style.top=(h-3)+'px';}
 let lastDraw=0;function animate(now){requestAnimationFrame(animate);if(document.hidden||now-lastDraw<30)return;lastDraw=now;notePulse*=.9;drawSequence();drawEnvelope();updateStepMarker();const a=activity();const n=(a.voices||[]).filter(v=>v.envelope>.01).length;$('voice-count').textContent='VOICES '+String(n).padStart(2,'0')+' / 08';}requestAnimationFrame(animate);
-window.addEventListener('beforeunload',()=>{disableSecondaryButtonTaps();tempoControl.destroy();anchorObserver.disconnect();scene.setParticleLayerProvider(null);signalField.dispose();galaxy.dispose();scene.dispose();engine.dispose();pwa.destroy();});
+window.addEventListener('beforeunload',()=>{disableSecondaryButtonTaps();signalRanges();tempoControl.destroy();anchorObserver.disconnect();scene.setParticleLayerProvider(null);signalField.dispose();galaxy.dispose();scene.dispose();engine.dispose();pwa.destroy();});

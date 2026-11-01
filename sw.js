@@ -1,17 +1,19 @@
 /* Only DUO's explicit static shell is cached. Account and authentication routes
    are deliberately outside this worker's fetch handling. */
 const CACHE_PREFIX = 'duo-ember-shell-';
-const CACHE_NAME = `${CACHE_PREFIX}20261101-collection-v18`;
+const CACHE_NAME = `${CACHE_PREFIX}20261102-collection-v19`;
 const BASE = new URL('./', self.location.href);
 const ASSETS = [
   'index.html', 'style.css', 'app.js', 'audio.js', 'ring.js',
   'appearance.js', 'appearance.css', 'shell.css', 'floating-panels.js', 'touch-controls.js', 'tempo-control.js', 'visual-config.js', 'pwa.js', 'signal-field.js', 'galaxy.js', 'galaxy.css',
   'manifest.webmanifest', 'vendor/Tone.js', 'vendor/three.module.min.js',
   'collection.html', 'collection.css', 'collection.js', 'collection-audio.js',
+  'instrument-layout.js', 'range-scrub.js', 'scene-postprocess.js', 'wavetable.js',
   'instrument-menu.js', 'instrument-menu.css', 'instruments/catalog.js', 'instruments/kit.js', 'instruments/appearance-migration.js',
   'instruments/carrier.js', 'instruments/cellular.js', 'instruments/census.js',
   'instruments/swarm.js', 'instruments/graticule.js', 'instruments/waveform.js',
   'instruments/geo.js', 'instruments/hand.js', 'instruments/structure.js', 'instruments/granular.js',
+  'instruments/terrain.js', 'instruments/phase-volume.js',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png'
 ].map(path => new URL(path, BASE).href);
 const ASSET_SET = new Set(ASSETS);
