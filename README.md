@@ -1,8 +1,31 @@
-# DUO — Signal
+# DUO — instrument collection
 
-A browser-local, dual-surface instrument. Tone.js drives eight pooled synth voices and a musical clock. Three.js renders the navigable Filter Sky galaxy and the bead ring with selective post-processing. Transparent canvas layers draw sequence, envelope, voice connections, and independent matrix filaments across the full playing surface.
+Eleven browser-local, dual-surface instruments based on the supplied reference video. Signal remains the default entry point, with its saved appearance, sound and camera settings intact. Open the grid icon in the footer to switch instruments. The ten new instruments are grouped into three batches for device testing and can also be opened directly at `collection.html#carrier` (replace `carrier` with an ID below).
 
 The app is served directly from the repository root. No build step, package installation or remote asset requests are required.
+
+## Collection and testing batches
+
+| Batch | Instrument / URL ID | Main interaction |
+| --- | --- | --- |
+| 01 | Carrier / Modulator · `carrier` | Left radius selects scale degree, angle selects octave. Right radius changes FM ratio, angle changes modulation index. Both hands control the same sounding voices. |
+| 01 | Cellular Field · `cellular` | Independent contacts create faceted voices. Move across pitch and octave; the right field changes filter cutoff and detune. The curtain displays the measured spectrum. |
+| 01 | Cell Census · `census` | Touch hexes to play or edit the sequence route. Drag translucent timbre regions by their headers. Region placement changes the sound of cells beneath them. |
+| 02 | Machine / Swarm · `swarm` | Edit pitch lanes; drag the moving streak field to play and physically disturb its flow. Translate and spread affect tuning and gesture response. |
+| 02 | Graticule / Lissajous · `graticule` | Left angle selects pitch, radius selects octave. Right X/Y changes frequency ratio and FM index, plotted as a three-dimensional phase figure. |
+| 02 | Machine / Man · `waveform` | Tap sequence cards to enable or mute them; drag to change pitch. Shape the sampled and continuous waveform surfaces. |
+| 03 | GeoSynth · `geo` | Play the note map and its coloured timbre regions. The right terrain can be played, orbited and pinched without confusing navigation with a note gesture. |
+| 03 | Hand / Machine · `hand` | Play the keys or shape the upper hand surface. The right side exposes voice envelopes, measured scope traces and ASCII amplitude. |
+| 03 | Structural Score · `structure` | Edit the truss nodes or pitch rows. Play the purple spectral loop; drag its surrounding space to orbit and pinch to zoom. |
+| 03 | Past / Future · `granular` | Scrub source position and grain pitch across history, cloud and future fields. Import local audio or use the internal harmonic buffer. |
+
+All ten ship together. Each has independent sound, visual settings and editable data, stored locally. Sound and Appearance are independent draggable panels; Appearance groups controls by the object they affect. Save a named look, reset to Reference, undo changes, or export/import the current instrument's JSON. Exports are instrument-specific. They do not contain imported audio files: a granular source survives instrument switches within the tab, but must be reimported after a page reload. Imports accept browser-decodable audio under 64 MB and two minutes.
+
+The collection uses native Web Audio FM voices, sample-clock sequencing, per-contact Hold/Arp, bounded polyphony, output limiting and post-output metering. Granular uses actual overlapping, windowed buffer grains with a bounded pool, routed through the same output meter. Three.js renders the cellular bodies, harmonic phase plot, terrain, spectral loop and grain cloud. Canvas draws the remaining fields and technical annotations. Signal retains its existing Tone.js engine and renderer.
+
+For each batch, test two-finger playing with Hold/Arp, tempo scrubbing, sound and appearance changes while a note is held, rotation/resize, and returning to a saved instrument. Pausing a sequence leaves held contacts sounding; turn Hold off to release them. Escape releases notes when no panel or disclosure is open. Backgrounding the app or leaving an instrument silences it. A–K plays collection voices, except Past / Future, whose touch surfaces control the grain engine.
+
+The PWA caches Signal and the complete collection. An update waits until the instrument is idle before activating. Installed iOS audio interruptions, touch callouts, system chrome and hardware frame rate still require testing on the device; desktop browser emulation does not reproduce those OS behaviors.
 
 ## GitHub Pages
 
@@ -18,7 +41,7 @@ The manifest requests fullscreen, falling back to standalone where the browser d
 
 Holding an instrument control or label does not select text or open the WebKit touch callout. Text-entry fields retain selection and editing. Actual iOS magnifier and installed display behavior still need device verification; portable browser checks do not emulate the OS chrome.
 
-## Playing
+## Playing Signal
 
 - Drag the ring to play scale-locked pitches; moving outward raises the octave. Start a drag in empty space around the ring to orbit freely through full rotations, with eased momentum. Scroll in empty space or pinch with two touches that start there to zoom. A touch that starts on the ring remains a playing touch. Arrow keys orbit a focused ring; +/− zoom; Home or a double-click in empty space resets the fitted view. Camera position and zoom save separately from appearance. Picking uses the visible 3D surface and current camera/rotation/scale. A contact reticle, illuminated bead patch and live voice arc attach to the touched ring surface and follow it through rotation, orbit and zoom. Moving the playing pointer selects a new surface point. Decorative ring elements do not intercept touches.
 - In Filter Sky, drag to orbit freely through full rotations, Shift/right-drag or Pan to translate, and scroll/pinch or use +/− to zoom. The Z-depth readout has a fixed width so changing detune values cannot shift its slider. Tune or drag the reticle to move its 3D position; picking a landmark selects its location. X maps logarithmically to cutoff, Y to resonance, and Z to oscillator detune/spread. The depth slider and Page Up/Down adjust Z; arrow keys adjust X/Y. Camera navigation does not change sound, and the view persists locally.
@@ -47,6 +70,8 @@ Signal uses the owner-supplied appearance: black plots, pink notes and magenta p
 - Appearance includes dot-matrix size/count/glow, density, field depth/spread, signal weight, response, trails, ring geometry/material, grid, palette, contrast, glow, grain, and other controls. Freeze captures the ring and shared field while the audio continues.
 
 ## Validation
+
+The collection regression suites cover independent Hold/Arp sources, audio-start cancellation, scheduled onset and release, voice limits and silence, grain bounds/windows/pool cleanup, radial hit mapping, FM derivatives, route and region editing, navigation ownership and state validation. The service-worker suite checks the full offline dependency graph, bounded installation, atomic installation failure and matching offline navigation shells. Browser checks also exercised all ten instruments with actual audio, simultaneous touches, switching, both floating panels, presets and landscape/portrait resizing. A native Chromium worker check installed all 40 assets, verified their bytes, deferred an update while playing, preserved unrelated caches, and opened all collection routes and Signal offline.
 
 `node tests/tempo-control.test.mjs` checks relative pointer scrubbing, clamping, cancellation, concurrent pointers, keyboard handling and teardown. `node tests/visual-config.test.mjs` checks default migration, preservation of custom settings, other looks and sanitized values. `node tests/audio.test.mjs` checks scale mapping, asynchronous cancellation, sequencing, voice bounds, independent arpeggiation, timestamped visual envelopes, voice allocation, cancellation, filter LFO continuity, post-master RMS and scheduled touch provenance. `node tests/signal-field.test.mjs` checks exact trail endpoints, fixed-cell area sampling, ASCII peak sampling and character-density mapping, independent source size/count, grid masks and tone, selective particle bloom, Gaussian fallback, continuous motion, directional packet travel and BPM scaling, elastic propagation and settling, frame-rate-independent metering, freeze, silence and extreme geometry. `node tests/ring-hit.test.mjs` checks visible bead picking across camera orbit, rotation, tilt, perspective, scale, depth and geometry changes, plus cage containment, camera fitting, full rotation and zoom, continuous sector lighting, breathing, and material-anchored contact provenance through release and pointer reuse. Browser checks cover touch/mouse play and orbit classification, rotated ring picking, anchored trails, live Web Audio loudness response, matching plot frames, parameter editing, session persistence, responsive layouts and offline reload. Real iOS installed-mode audio and hardware frame rate need device validation.
 
