@@ -2,9 +2,9 @@ const STORAGE = 'duo.panels.v1';
 const clamp = (value, min, max) => Math.min(Math.max(min, max), Math.max(min, value));
 
 // Nonmodal editors share the root stacking context and retain their own placement.
-export function createFloatingPanels(configurations) {
+export function createFloatingPanels(configurations,{storageKey=STORAGE}={}) {
   let saved = {};
-  try { saved = JSON.parse(localStorage.getItem(STORAGE) || '{}') || {}; } catch {}
+  try { saved = JSON.parse(localStorage.getItem(storageKey) || '{}') || {}; } catch {}
   const panels = new Map(), stack = [], openingOrder = [];
   let drag = null, frame = 0;
   const safeArea = document.createElement('div');
@@ -15,7 +15,7 @@ export function createFloatingPanels(configurations) {
   function persist() {
     const entries = {};
     for (const [id, panel] of panels) entries[id] = {open:!panel.element.hidden, position:panel.position};
-    try { localStorage.setItem(STORAGE, JSON.stringify({panels:entries, order:openingOrder, stack})); } catch {}
+    try { localStorage.setItem(storageKey, JSON.stringify({panels:entries, order:openingOrder, stack})); } catch {}
   }
 
   function bounds() {

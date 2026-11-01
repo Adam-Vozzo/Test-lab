@@ -1,7 +1,7 @@
 // A secondary finger does not synthesize a click in every mobile browser.
 // Keep one finger playing while another taps an explicit instrument button.
 export function enableSecondaryButtonTaps(root = document) {
-  const selector = '#performance-toggle,#hold,#arp,#sound-toggle,#appearance-toggle,#play,[data-close],[data-waveform]';
+  const selector = '#performance-toggle,#hold,#arp,#sound-toggle,#appearance-toggle,#collection-toggle,#play,[data-close],[data-waveform]';
   const pending = new Map(), completed = new Map(), lastDown = new WeakMap();
   const controller = new AbortController(), options = {capture:true, signal:controller.signal};
   const buttonAt = target => target?.closest?.('button')?.matches(selector) ? target.closest('button') : null;

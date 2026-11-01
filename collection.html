@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f0ede5">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="description" content="A collection of playable touch instruments.">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="./icons/icon-192.png">
+  <link rel="stylesheet" href="./collection.css">
+  <title>Carrier / Modulator</title>
+</head>
+<body>
+  <main class="collection-instrument">
+    <div id="stage" class="collection-stage" aria-label="Instrument playing surface"></div>
+    <footer class="bottom-bar">
+      <div class="footer-transport">
+        <button id="play" class="play-button" aria-label="Play sequence" title="Play / pause · Space"><svg viewBox="0 0 20 20"><path d="m7 4 10 6-10 6Z"/></svg></button>
+        <div id="tempo-control" class="tempo-control"><button id="tempo-trigger" class="tempo-trigger" type="button" role="slider" aria-label="Tempo" aria-orientation="horizontal" aria-valuemin="40" aria-valuemax="220" aria-valuenow="112" aria-valuetext="112 beats per minute" title="Tempo · hold and drag"><output id="bpm-readout" aria-hidden="true">112</output><span aria-hidden="true">BPM</span></button><div id="tempo-popup" class="tempo-popup" aria-hidden="true"><div class="tempo-scale"><span>40</span><output id="tempo-popup-value">112 BPM</output><span>220</span></div><input id="bpm" type="range" min="40" max="220" step="1" value="112" tabindex="-1" aria-label="Tempo in beats per minute"></div></div>
+        <button id="arp" class="footer-tool" aria-label="Arpeggiator" aria-pressed="false" title="Arpeggiator"><svg viewBox="0 0 20 20"><path d="M2 16h4v-4h4V8h4V4h4"/></svg></button>
+        <button id="hold" class="footer-tool" aria-label="Hold notes" aria-pressed="false" title="Hold notes after release"><svg viewBox="0 0 20 20"><path d="M6 9V6a4 4 0 0 1 8 0v3M5 9h10v8H5zM10 12v2"/></svg></button>
+        <button id="performance-toggle" class="footer-key" aria-label="Key and arpeggiator settings" aria-expanded="false" aria-controls="performance-popover"><span id="key-readout">D · Dorian</span><svg viewBox="0 0 20 20"><path d="m6 12 4-4 4 4"/></svg></button>
+      </div>
+      <output id="instrument-status" class="instrument-status" aria-label="Instrument state"></output>
+      <div class="footer-tools">
+        <button id="collection-toggle" class="instrument-picker" aria-label="Choose instrument" aria-expanded="false" aria-controls="collection-menu"><svg viewBox="0 0 20 20"><path d="M3 3h5v5H3zM12 3h5v5h-5zM3 12h5v5H3zM12 12h5v5h-5z"/></svg><span id="instrument-name">Carrier / Modulator</span></button>
+        <button id="sound-toggle" class="footer-tool" aria-label="Sound settings" title="Sound" aria-expanded="false" aria-controls="sound-popover"><svg viewBox="0 0 20 20"><path d="M3 12V8m4 8V4m6 12V4m4 8V8"/></svg></button>
+        <button id="appearance-toggle" class="footer-tool" aria-label="Appearance settings" title="Appearance" aria-expanded="false" aria-controls="appearance"><svg viewBox="0 0 20 20"><path d="M3 5h14M3 10h14M3 15h14M7 3v4M13 8v4M6 13v4"/></svg></button>
+      </div>
+    </footer>
+  </main>
+  <section id="collection-menu" class="collection-menu" role="dialog" aria-label="Instrument collection" hidden><div class="menu-heading"><span>Instruments</span><button data-close="collection-menu" aria-label="Close instrument collection">×</button></div><div id="collection-list"></div></section>
+  <section id="sound-popover" class="settings-panel" role="dialog" aria-label="Sound settings" hidden><div class="panel-heading"><h2>Sound</h2><button data-close="sound-popover" aria-label="Close sound settings">×</button></div><div class="settings-tabs" data-tabs="sound"></div><div class="settings-scroll" data-controls="sound"></div></section>
+  <section id="appearance" class="settings-panel" role="dialog" aria-label="Appearance settings" hidden><div class="panel-heading"><h2>Appearance</h2><button data-close="appearance" aria-label="Close appearance settings">×</button></div><div class="preset-tools"><select id="appearance-preset" aria-label="Appearance preset"><option value="reference">Reference</option></select><button id="save-look" title="Save appearance preset" aria-label="Save appearance preset">＋</button><button id="export-look" title="Export instrument settings" aria-label="Export instrument settings">↗</button><label class="import-label" title="Import instrument settings" aria-label="Import instrument settings">↙<input id="import-look" type="file" accept=".json,application/json" hidden></label><button id="undo-look" title="Undo appearance change" aria-label="Undo appearance change">↶</button><button id="reset-look" title="Reset appearance" aria-label="Reset appearance">↺</button></div><form id="save-look-form" hidden><input id="look-name" type="text" maxlength="40" placeholder="Preset name" aria-label="Preset name" required><button type="submit">Save</button><button type="button" id="cancel-save" aria-label="Cancel saving preset">×</button></form><div class="settings-tabs" data-tabs="appearance"></div><div class="settings-scroll" data-controls="appearance"></div><div class="settings-bottom"><button id="fullscreen" hidden>Enter fullscreen</button><span id="preset-status" role="status"></span></div></section>
+  <section id="performance-popover" class="performance-panel" role="dialog" aria-label="Key and arpeggiator settings" hidden><div class="panel-heading"><h2>Key / Arp</h2><button data-close="performance-popover" aria-label="Close key settings">×</button></div><label>Root<select id="root" aria-label="Root note"></select></label><label>Scale<select id="scale" aria-label="Musical scale"><option value="dorian">Dorian</option><option value="minor">Minor</option><option value="major">Major</option><option value="pentatonic">Pentatonic</option><option value="chromatic">Chromatic</option></select></label><label>Arp division<select id="arp-rate" aria-label="Arpeggiator rate"><option value="4">1/4</option><option value="8">1/8</option><option value="16">1/16</option></select></label></section>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="./collection.js"></script>
+</body>
+</html>
