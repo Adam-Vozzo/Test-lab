@@ -1,5 +1,9 @@
 /* One quiet control edge; the playing surfaces keep the full canvas. */
 :root{--footer-height:64px;--text-tracking:0em}
+/* Sustained presses play the instrument; only text-entry controls select text. */
+body{user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+input:not([type]),input:is([type=text],[type=search],[type=email],[type=url],[type=tel],[type=password],[type=number]),textarea,[contenteditable=""],[contenteditable=true],[contenteditable=plaintext-only]{user-select:text;-webkit-user-select:text;-webkit-touch-callout:default}
+select{user-select:auto;-webkit-user-select:auto;-webkit-touch-callout:default}
 .instrument,.reference .instrument{padding-top:max(10px,env(safe-area-inset-top));background:var(--bg)}
 .workspace,.reference .workspace{padding-top:0;padding-bottom:10px;position:relative;isolation:isolate}
 .bottom-bar,.reference .bottom-bar{height:var(--footer-height);min-height:var(--footer-height);padding:0;display:flex;align-items:center;justify-content:space-between;gap:18px;border-top:1px solid color-mix(in srgb,var(--fg) 17%,transparent);background:var(--bg);flex:none}

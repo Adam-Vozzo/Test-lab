@@ -80,9 +80,9 @@ function signalAnchors(){
 }
 const signalField=new SignalField(document.querySelector('.workspace'),{getVisual:()=>state.visual,getPalette:palette,getActivity:activity,getAnchors:signalAnchors});
 scene.setParticleLayerProvider(now=>signalField.updateParticleLayer(now));
-const appearance=createAppearance($('appearance'),{getVisual:()=>state.visual,setVisual,getLook:()=>state.look,setLook,onToast:toast});
 const tempoControl=createTempoControl($('tempo-control'));
 const pwa=setupPWA({isPlaying:()=>state.playing||livePointers.size>0||keys.size>0||state.hold||ringGestures.size>0||galaxy.dragging||floatingPanels.dragging||tempoControl.active,onToast:toast});
+const appearance=createAppearance($('appearance'),{getVisual:()=>state.visual,setVisual,getLook:()=>state.look,setLook,onToast:toast,getFullscreen:()=>({available:pwa.canFullscreen,active:pwa.fullscreen}),onFullscreen:()=>pwa.toggleFullscreen()});
 
 function updateTransport(){$('play').classList.toggle('playing',state.playing);$('play').setAttribute('aria-label',state.playing?'Pause sequence':'Play sequence');$('play').innerHTML=state.playing?'<svg viewBox="0 0 20 20"><path d="M6 4h3v12H6ZM12 4h3v12h-3Z"/></svg>':'<svg viewBox="0 0 20 20"><path d="M7 4 16 10 7 16Z"/></svg>';$('hold').setAttribute('aria-pressed',state.hold);$('arp').setAttribute('aria-pressed',state.sequence.arp);window.dispatchEvent(new Event('duo:transport'));}
 let playRequest=0;
