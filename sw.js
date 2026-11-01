@@ -1,14 +1,14 @@
 /* Only DUO's explicit static shell is cached. Account and authentication routes
    are deliberately outside this worker's fetch handling. */
 const CACHE_PREFIX = 'duo-ember-shell-';
-const CACHE_NAME = `${CACHE_PREFIX}20261101-collection-v17`;
+const CACHE_NAME = `${CACHE_PREFIX}20261101-collection-v18`;
 const BASE = new URL('./', self.location.href);
 const ASSETS = [
   'index.html', 'style.css', 'app.js', 'audio.js', 'ring.js',
   'appearance.js', 'appearance.css', 'shell.css', 'floating-panels.js', 'touch-controls.js', 'tempo-control.js', 'visual-config.js', 'pwa.js', 'signal-field.js', 'galaxy.js', 'galaxy.css',
   'manifest.webmanifest', 'vendor/Tone.js', 'vendor/three.module.min.js',
   'collection.html', 'collection.css', 'collection.js', 'collection-audio.js',
-  'instrument-menu.js', 'instrument-menu.css', 'instruments/catalog.js', 'instruments/kit.js',
+  'instrument-menu.js', 'instrument-menu.css', 'instruments/catalog.js', 'instruments/kit.js', 'instruments/appearance-migration.js',
   'instruments/carrier.js', 'instruments/cellular.js', 'instruments/census.js',
   'instruments/swarm.js', 'instruments/graticule.js', 'instruments/waveform.js',
   'instruments/geo.js', 'instruments/hand.js', 'instruments/structure.js', 'instruments/granular.js',
@@ -61,6 +61,9 @@ self.addEventListener('fetch', event => {
   if (request.method !== 'GET') return;
   const url = new URL(request.url);
   if (url.origin !== BASE.origin || url.search) return;
+  // Navigation Request URLs can retain the client-side instrument fragment.
+  // It selects app state, not a different cached document or static asset.
+  url.hash = '';
   const isInstrumentNavigation = request.mode === 'navigate' &&
     (url.pathname === BASE.pathname || url.href === INDEX || url.href === COLLECTION);
 

@@ -2,8 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {CollectionAudio, midiFrequency} from '../collection-audio.js';
 
-function fixture({suspended=false,maxVoices=16}={}) {
-  let now=1, unblock, timer, clears=0;
+function fixture({suspended=false,maxVoices=16,audioSession,resumeMode='normal',useTone=false}={}) {
+  let now=1, unblock, timer, clears=0,resumeCalls=0,toneStarts=0;
+  const waits=new Set(),states=[];
   const resume = suspended ? new Promise(resolve=>{unblock=resolve;}) : Promise.resolve();
   class Param {
     constructor(value=0) { this.value=value;this.events=[]; }
@@ -22,7 +23,7 @@ function fixture({suspended=false,maxVoices=16}={}) {
     getByteFrequencyData(array) {array.fill(this.spectral??0);}
   }
   class Context {
-    constructor() { this.state=suspended?'suspended':'running';this.destination=new Node();this.sampleRate=48000;this.nodes=[]; }
+    constructor() { this.state=suspended?'suspended':'running';this.destination=new Node();this.sampleRate=48000;this.nodes=[];this.listeners=new Map(); }
     get currentTime() {return now;}
     createGain() {const node=new Node();this.nodes.push(node);return node;}
     createOscillator() {return this.createGain();}
@@ -32,12 +33,16 @@ function fixture({suspended=false,maxVoices=16}={}) {
     createDelay() {return this.createGain();}
     createDynamicsCompressor() {return this.createGain();}
     createAnalyser() {return this.createGain();}
-    resume() {return resume.then(()=>{if(this.state!=='closed')this.state='running';});}
-    close() {this.state='closed';return Promise.resolve();}
+    addEventListener(name,fn) {if(!this.listeners.has(name))this.listeners.set(name,new Set());this.listeners.get(name).add(fn);}
+    removeEventListener(name,fn) {this.listeners.get(name)?.delete(fn);}
+    emit(name) {for(const fn of [...(this.listeners.get(name)||[])])fn();}
+    resume() {resumeCalls++;if(resumeMode==='stalled'||(resumeMode==='gesture'&&resumeCalls===1))return new Promise(()=>{});return(resumeMode==='normal'?resume:Promise.resolve()).then(()=>{if(this.state!=='closed'){this.state='running';this.emit('statechange');}});}
+    close() {this.state='closed';this.emit('statechange');return Promise.resolve();}
   }
   const errors=[];
-  const audio=new CollectionAudio({AudioContext:Context,maxVoices,setInterval(fn){timer=fn;return 1;},clearInterval(){clears++;},onError:e=>errors.push(e)});
-  return {audio,errors,get now(){return now;},advance(seconds){now+=seconds;timer?.();},at(time){now=time;timer?.();},unblock(){unblock?.();},get clears(){return clears;}};
+  const context=useTone?new Context():null,Tone=useTone?{getContext:()=>({rawContext:context}),start(){toneStarts++;return context.resume();}}:undefined;
+  const audio=new CollectionAudio({AudioContext:useTone?undefined:Context,Tone,audioSession,maxVoices,setInterval(fn){timer=fn;return 1;},clearInterval(){clears++;},setTimeout(fn){const token={fn};waits.add(token);return token;},clearTimeout(token){waits.delete(token);},onError:e=>errors.push(e),onStateChange:state=>states.push(state)});
+  return {audio,errors,states,get now(){return now;},advance(seconds){now+=seconds;timer?.();},at(time){now=time;timer?.();},unblock(){unblock?.();},get clears(){return clears;},get resumeCalls(){return resumeCalls;},get toneStarts(){return toneStarts;},get pendingWaits(){return waits.size;},expire(){for(const token of [...waits])token.fn();},allowResume(){resumeMode='immediate';}};
 }
 
 test('unlock is gesture-bound and a released contact cannot sound after pending resume',async()=>{
@@ -51,6 +56,39 @@ test('unlock is gesture-bound and a released contact cannot sound after pending 
 test('dispose while resume is pending cannot restart synthesis or scheduling',async()=>{
   const f=fixture({suspended:true}),ready=f.audio.start();f.audio.noteOn('touch',60);await f.audio.dispose();f.unblock();
   assert.equal(await ready,false);assert.equal(f.audio.sources.size,0);assert.equal(f.audio.context.state,'closed');assert.equal(f.clears,1);
+});
+
+test('an activation-gated pointerdown cannot block a later eligible gesture from resuming',async()=>{
+  const f=fixture({suspended:true,resumeMode:'gesture'}),first=f.audio.start();
+  f.audio.noteOn('released-before-unlock',60);f.audio.noteOff('released-before-unlock');
+  assert.equal(f.resumeCalls,1);assert.equal(f.audio.context.state,'suspended');
+  const second=f.audio.start();assert.equal(f.resumeCalls,2,'resume must run synchronously again within the new gesture');
+  assert.equal(await second,true);assert.equal(await first,true);assert.deepEqual(f.audio.snapshot().voices,[]);assert.equal(f.pendingWaits,0);
+  await f.audio.start();assert.equal(f.resumeCalls,3,'running contexts still receive the gesture-bound platform start');await f.audio.dispose();
+});
+
+test('stalled activation has a bounded result and a subsequent gesture can recover',async()=>{
+  const f=fixture({suspended:true,resumeMode:'stalled'}),pending=f.audio.start();assert.equal(f.pendingWaits,1);f.expire();
+  assert.equal(await pending,false);assert.match(f.audio.lastError.message,/activation/);assert.equal(f.pendingWaits,0);
+  f.allowResume();assert.equal(await f.audio.start(),true);assert.equal(f.audio.lastError,null);await f.audio.dispose();
+});
+
+test('production Tone platform uses its standardized context and retries its start for every gesture',async()=>{
+  const f=fixture({useTone:true,suspended:true,resumeMode:'gesture'}),first=f.audio.start();
+  assert.equal(f.toneStarts,1);const second=f.audio.start();assert.equal(f.toneStarts,2);assert.equal(await second,true);assert.equal(await first,true);
+  f.audio.noteOn('tone-platform',69);f.advance(.1);assert.equal(f.audio.snapshot().voices[0].id,'tone-platform');await f.audio.dispose();
+});
+
+test('music requests playback session type where supported and restores only its own change',async()=>{
+  const session={type:'auto'},f=fixture({audioSession:session});await f.audio.start();assert.equal(session.type,'playback');await f.audio.dispose();assert.equal(session.type,'auto');
+  const recording={type:'play-and-record'},g=fixture({audioSession:recording});await g.audio.start();assert.equal(recording.type,'play-and-record');await g.audio.dispose();assert.equal(recording.type,'play-and-record');
+  const blocked={get type(){return'auto';},set type(value){throw new Error('unsupported');}},h=fixture({audioSession:blocked});assert.equal(await h.audio.start(),true);await h.audio.dispose();
+});
+
+test('context interruption clears notes and reports state without automatically replaying them',async()=>{
+  const f=fixture();await f.audio.start();f.audio.noteOn('held',60);f.audio.setPerformance({hold:true});f.audio.noteOff('held');
+  f.audio.context.state='interrupted';f.audio.context.emit('statechange');assert.deepEqual(f.states,['interrupted']);assert.equal(f.audio.sources.size,0);assert.equal(f.audio.transport.playing,false);
+  assert.equal(await f.audio.start(),true);assert.deepEqual(f.audio.snapshot().voices,[]);await f.audio.dispose();
 });
 
 test('audio-time envelopes exclude future notes and preserve release tails',async()=>{
@@ -123,6 +161,13 @@ test('configure changes live FM/filter/shape while preserving voice and contact 
   f.audio.setPerformance({arp:true});f.advance(.02);assert.ok(f.audio._voices.some(v=>v.kind==='arp'&&v.options.index===2));await f.audio.dispose();
 });
 
+test('zero-crush voices physically bypass the optional waveshaper and reconnect safely when edited',async()=>{
+  const f=fixture();await f.audio.start();f.audio.noteOn('plain',60,{crush:0});const v=f.audio._voices[0];
+  assert.deepEqual(v.filter.connections,[v.amp]);assert.deepEqual(v.shaper.connections,[]);
+  f.audio.configure({crush:.7});assert.deepEqual(v.filter.connections,[v.shaper]);assert.deepEqual(v.shaper.connections,[v.amp]);
+  f.audio.configure({crush:0});assert.deepEqual(v.filter.connections,[v.amp]);assert.deepEqual(v.shaper.connections,[]);await f.audio.dispose();
+});
+
 test('replacing an instrument sound resets effects omitted by the incoming instrument',async()=>{
   const f=fixture();await f.audio.start();f.audio.configure({waveform:'square',crush:.9,echo:.5,feedback:.6,delayTime:.8,index:8,customOldField:123});
   f.audio.configure({waveform:'sine',index:1.2},{replace:true});f.audio.noteOn('new',60);
@@ -152,5 +197,5 @@ test('meter reads actual post-master output, including external engines, indepen
   const f=fixture();await f.audio.start();f.audio._analyser.sample=.125;f.audio._analyser.spectral=128;
   let snapshot=f.audio.snapshot();assert.equal(snapshot.voices.length,0);assert.equal(snapshot.rms,.125);assert.ok(Math.abs(snapshot.frequency[10]-128/255)<1e-7);
   f.audio.noteOn('a',60);f.audio._analyser.sample=0;snapshot=f.audio.snapshot();assert.equal(snapshot.rms,0);
-  assert.ok(f.audio.output.connections.includes(f.audio._compressor));assert.ok(f.audio._master.connections.includes(f.audio._analyser));await f.audio.dispose();
+  assert.ok(f.audio.output.connections.includes(f.audio._compressor));assert.ok(f.audio._master.connections.includes(f.audio._analyser));assert.ok(f.audio._master.connections.includes(f.audio.context.destination));assert.deepEqual(f.audio._analyser.connections,[],'the analyser is never in the speaker path');await f.audio.dispose();
 });

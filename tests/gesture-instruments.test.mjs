@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {carrierMapping,definition as carrier} from '../instruments/carrier.js';
-import {polarMapping,phasePoint,definition as graticule} from '../instruments/graticule.js';
+import {polarMapping,polarGeometry,phasePoint,definition as graticule} from '../instruments/graticule.js';
 import {definition as cellular} from '../instruments/cellular.js';
 
 const TAU=Math.PI*2;
@@ -24,18 +24,26 @@ test('carrier maps angular movement to octave and FM index with bounded extremes
 });
 test('polar scale sectors and octave rings remain aligned through portrait and wide viewports',()=>{
   for(const aspect of [.46,1.44,2.16,3])for(let degree=0;degree<7;degree++)for(let octave=0;octave<3;octave++){
-    const radius=Math.min(aspect*.225,.36),angle=(degree+.5)/7*TAU-Math.PI*.5,r=(octave+.5)/3;
-    const p=polarMapping(.255+Math.cos(angle)*radius*r/aspect,.48+Math.sin(angle)*radius*r,aspect);
+    const height=aspect>2?330:820,width=aspect*height,g=polarGeometry(width,height),angle=(degree+.5)/7*TAU-Math.PI*.5,r=(octave+.5)/3;
+    const p=polarMapping((g.x+Math.cos(angle)*g.r*r)/width,(g.y+Math.sin(angle)*g.r*r)/height,aspect,height);
     assert.equal(p.degree,degree);assert.equal(p.octave,octave-1);assert.ok(Math.abs(p.r-r)<1e-10);
   }
 });
 test('phase plot uses the FM carrier, modulator and normalized analytic derivative',()=>{
   for(const ratio of [.25,1,1.5,3,8])for(const index of [0,.75,5,10])for(let i=0;i<51;i++){
     const theta=i/50*TAU,p=phasePoint(theta,ratio,index),h=.000001;
-    const numerical=(phasePoint(theta+h,ratio,index).carrier-phasePoint(theta-h,ratio,index).carrier)/(2*h)/(1+index*ratio);
+    const numerical=(phasePoint(theta+h,ratio,index).carrier-phasePoint(theta-h,ratio,index).carrier)/(2*h)/(1+index);
     assert.ok(Math.abs(p.derivative-numerical)<1e-6);assert.ok(Math.abs(p.carrier)<=1&&Math.abs(p.mod)<=1&&Math.abs(p.derivative)<=1+1e-12);
   }
   const p=phasePoint(.7,1,0);assert.equal(p.carrier,p.mod);assert.equal(p.derivative,Math.cos(.7));
+});
+test('phase samples follow the selected oscillator shape and remain bounded at discontinuities',()=>{
+  const squares=[],saws=[];
+  for(const waveform of['sine','triangle','sawtooth','square'])for(const ratio of[.25,1.5,8])for(let i=0;i<200;i++){
+    const p=phasePoint(i/199*TAU,ratio,3,waveform);for(const value of Object.values(p))assert.ok(Number.isFinite(value)&&Math.abs(value)<=1.001);
+    if(ratio===1.5&&waveform==='square')squares.push(p.carrier);if(ratio===1.5&&waveform==='sawtooth')saws.push(p.carrier);
+  }
+  assert.ok(squares.filter(x=>Math.abs(x)>.8).length>saws.filter(x=>Math.abs(x)>.8).length*2,'pulse waveform has extended high/low plateaus');
 });
 test('gesture instrument controls declare valid defaults and affected-object descriptions',()=>{
   for(const d of[carrier,cellular,graticule])for(const [controls,defaults]of[[d.appearanceControls,d.defaultAppearance],[d.soundControls,d.defaultSound]]){
