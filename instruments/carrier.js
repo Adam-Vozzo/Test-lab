@@ -4,7 +4,7 @@ export const definition={
   id:'carrier',name:'Carrier / Modulator',batch:1,
   theme:{bg:'#f0ede5',fg:'#262725',accent:'#ce4939',muted:'#79766e'},
   defaultSound:{waveform:'sine',attack:.025,decay:.25,sustain:.75,release:.75,cutoff:9500,resonance:.6,ratio:2,index:1.8,gain:.28,glide:.055},
-  defaultAppearance:{dotSpacing:21,dotSize:.95,guideOpacity:.22,ribbonWidth:1,ribbonOpacity:.7,tension:8,damping:7,ribbonMotion:.65,coupling:.55,paperGrain:.035,ink:'#262725',paper:'#f0ede5',prismHue:0},
+  defaultAppearance:{dotSpacing:27,dotSize:1.65,guideOpacity:.25,ribbonWidth:1,ribbonOpacity:.7,tension:8,damping:7,ribbonMotion:.65,coupling:.55,paperGrain:.035,ink:'#262725',paper:'#f0ede5',prismHue:0},
   soundControls:[
     {key:'ratio',label:'Modulator ratio',min:.25,max:12,step:.25,unit:'×',section:'Modulation',description:'Modulator frequency relative to the carrier; also the right radial selection.'},
     {key:'index',label:'Modulation index',min:0,max:12,step:.05,section:'Modulation',description:'FM depth and the width of the coupling traces.'},
@@ -65,31 +65,43 @@ export function mount(host,api){
     c.fillStyle=c.createPattern(grain,'repeat');c.fillRect(0,0,w,h);
   }
   function guides(v,w,h){
-    const spacing=v.dotSpacing;c.fillStyle=rgba(v.ink,.34);c.beginPath();
-    for(let y=68;y<h-62;y+=spacing)for(let x=24;x<w-16;x+=spacing){const edge=Math.min(x/w,1-x/w,y/h,1-y/h);c.moveTo(x+v.dotSize,y);c.arc(x,y,v.dotSize*Math.min(1,edge*8),0,TAU);}c.fill();
+    const spacing=v.dotSpacing;
+    // The guide points belong to the radial geometry on each playing half.
+    for(let side=0;side<2;side++){
+      const o=origin(side,w,h),radius=Math.min(w*.48,h*.8);c.save();c.beginPath();c.rect(side?w*.5:0,64,w*.5,h-114);c.clip();c.fillStyle=rgba(v.ink,.7);c.beginPath();
+      for(let r=spacing;r<radius;r+=spacing){const steps=Math.max(12,Math.round(TAU*r/spacing)),size=v.dotSize*(.55+.65*r/radius);for(let k=0;k<steps;k++){const a=k/steps*TAU,x=o.x+Math.cos(a)*r,y=o.y+Math.sin(a)*r;c.moveTo(x+size,y);c.arc(x,y,size,0,TAU);}}c.fill();c.restore();
+    }
     c.strokeStyle=rgba(v.ink,v.guideOpacity);c.lineWidth=.65;
     for(let side=0;side<2;side++){
       const o=origin(side,w,h),radius=Math.min(w*.43,h*.64);c.save();c.beginPath();c.rect(side?w*.5:0,54,w*.5,h-100);c.clip();
       for(let i=1;i<=7;i++){c.beginPath();c.arc(o.x,o.y,radius*i/7,0,TAU);c.stroke();}
       for(let i=0;i<9;i++){const a=-Math.PI*.54+i*Math.PI*.13;const dx=Math.cos(a)*radius*(side?1:-1),dy=Math.sin(a)*radius;line(c,[[o.x,o.y],[o.x+dx,o.y+dy]],rgba(v.ink,v.guideOpacity*.5),.6);}
       c.restore();
+      const p=cursor[side],selectedRadius=Math.min(radius,Math.hypot(p.x-o.x,p.y-o.y));c.save();c.beginPath();c.rect(side?w*.5:0,64,w*.5,h-114);c.clip();c.strokeStyle=rgba(v.ink,Math.min(.75,v.guideOpacity*2.3));c.lineWidth=1;c.beginPath();c.arc(o.x,o.y,selectedRadius,0,TAU);c.stroke();c.restore();
     }
     line(c,[[w*.5,25],[w*.5,h-24]],rgba(v.ink,.1),.6);
     for(let i=0;i<7;i++){const x=w*.09+i*w*.052;label(c,String(i+1),x,h-48,rgba(v.ink,i===lastDegree?.85:.34),8,'center');}
   }
   function ribbon(side,v,w,h,t,energy){
     const o=origin(side,w,h),p=cursor[side],dx=p.x-o.x,dy=p.y-o.y,len=Math.max(1,Math.hypot(dx,dy)),normal={x:-dy/len,y:dx/len};
-    const width=Math.min(w*.055,h*.085)*v.ribbonWidth;
+    const width=Math.min(w*.033,h*.056)*v.ribbonWidth;
     const point=(s,edge)=>{
-      const sway=Math.sin(s*Math.PI)*Math.sin(s*10-t*1.2+side)*v.ribbonMotion*(3+energy*10);
-      const spread=(4+width*s)*edge;
+      const impulse=clamp((p.vx*normal.x+p.vy*normal.y)*.02,-40,40);
+      const sway=Math.sin(s*Math.PI)*(Math.sin(s*10-t*1.2+side)*v.ribbonMotion*(2+energy*6)-impulse);
+      const irregular=.1*Math.sin(s*31+side*3)+.06*Math.sin(s*59+side+t*.25)*Math.sin(s*Math.PI);const spread=(5+width*(1-Math.exp(-s*15))*(.84+.1*Math.sin(s*9+side)+irregular))*edge;
       return {x:o.x+dx*s+normal.x*(spread+sway),y:o.y+dy*s+normal.y*(spread+sway)};
     };
     c.save();
-    for(let j=0;j<70;j++){
-      const s=j/70,n=(j+1)/70,a=point(s,-1),b=point(n,-1),d=point(n,1),e=point(s,1);
-      c.fillStyle=hue(66+s*(side?215:-130)+Math.sin(s*7+t*.3)*9,v);c.beginPath();c.moveTo(a.x,a.y);c.lineTo(b.x,b.y);c.lineTo(d.x,d.y);c.lineTo(e.x,e.y);c.closePath();c.fill();
+    // Layered, nearly parallel prismatic laminations; the black root blends
+    // into the material instead of opening into a triangular fan.
+    for(let band=0;band<6;band++)for(let j=0;j<42;j++){
+      const edge=-1+band/3,next=-1+(band+1)/3,s=j/42,n=(j+1)/42,a=point(s,edge),b=point(n,edge),d=point(n,next),e=point(s,next);
+      const shade=47+band*2.4+Math.sin(j*.55+band)*4,hh=66+s*(side?215:-130)+band*3+v.prismHue;
+      c.fillStyle=`hsla(${hh},84%,${shade}%,${v.ribbonOpacity*(.72+.28*Math.sin((band+.5)/6*Math.PI))})`;c.beginPath();c.moveTo(a.x,a.y);c.lineTo(b.x,b.y);c.lineTo(d.x,d.y);c.lineTo(e.x,e.y);c.closePath();c.fill();
+      if((j+band)%7===0){c.strokeStyle=rgba(v.ink,.06);c.lineWidth=.45;c.beginPath();c.moveTo(a.x,a.y);c.lineTo(e.x,e.y);c.stroke();}
     }
+    const rootGradient=c.createLinearGradient(o.x,o.y,o.x+dx*.2,o.y+dy*.2);rootGradient.addColorStop(0,rgba(v.ink,.96));rootGradient.addColorStop(.7,rgba(v.ink,.62));rootGradient.addColorStop(1,rgba(v.ink,0));c.fillStyle=rootGradient;c.beginPath();for(let j=0;j<=20;j++){const a=point(j/100,-1);j?c.lineTo(a.x,a.y):c.moveTo(a.x,a.y);}for(let j=20;j>=0;j--){const a=point(j/100,1);c.lineTo(a.x,a.y);}c.closePath();c.fill();
+    for(let j=0;j<11;j++){const s=.08+j*.075,edge=(j%2?1:-1)*(1.27+.16*Math.sin(j)),a=point(s,edge),r=(3.8+Math.sin(j*1.8)*1.7+energy)*v.ribbonWidth;c.fillStyle=hue(66+s*(side?215:-130),v);c.beginPath();c.ellipse(a.x,a.y,r*1.2,r,Math.atan2(dy,dx),0,TAU);c.fill();c.fillStyle=rgba('#ffffff',.45);c.beginPath();c.arc(a.x-r*.25,a.y-r*.25,r*.25,0,TAU);c.fill();}
     c.strokeStyle=rgba(v.ink,.35);c.lineWidth=.7;
     for(const edge of [-1,1]){c.beginPath();for(let i=0;i<=70;i++){const p=point(i/70,edge);i?c.lineTo(p.x,p.y):c.moveTo(p.x,p.y);}c.stroke();}
     for(let j=0;j<4;j++){c.strokeStyle=rgba('#ffffff',.3);c.beginPath();for(let i=0;i<=70;i++){const p=point(i/70,Math.sin(i/9+t*1.4+j)*.3+(j-1.5)*.36);i?c.lineTo(p.x,p.y):c.moveTo(p.x,p.y);}c.stroke();}

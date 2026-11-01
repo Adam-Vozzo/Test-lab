@@ -38,6 +38,7 @@ function fixture(){
 test('actual grains schedule source/window/pan at the audio clock and report the same events',()=>{
   const f=fixture();const event=f.cloud.schedule(2.08,{duration:.18,position:.5,pitch:12,jitter:0,pitchJitter:0,stereo:.5,gain:.2,density:18});
   assert.equal(event.when,2.08);assert.ok(Math.abs(event.until-2.26)<1e-10);assert.equal(f.nodes[0].started[0],event.when);assert.equal(f.nodes[0].started[1],event.offset);assert.equal(f.nodes[0].playbackRate.values[0][0],2);assert.equal(f.nodes[1].gain.values[0][1],event.when);assert.equal(f.nodes[2].connections[0],f.audio.output);
+  assert.equal(event.bufferLength,f.nodes[0].started[2]);assert.equal(event.bufferLength,event.duration*2); // The visual source window follows transposed buffer time.
   assert.equal(f.cloud.pool.size,1);f.nodes[0].onended();assert.equal(f.cloud.pool.size,0);assert.ok(f.nodes.every(n=>n.disconnected===1));
 });
 

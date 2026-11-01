@@ -59,3 +59,23 @@ test('Geo zoom requires two terrain contacts; a playing finger never becomes a p
 test('Census sequence pitch is independent of hex density and viewport shape',()=>{
  const f=fixture(censusDefinition,censusMount);try{for(let i=0;i<16;i++)f.controller.onStep(i,i);const notes=f.calls.pulse.map(call=>call[1]);f.state.appearance.cellScale=1.4;f.resize(390,766);for(let i=0;i<16;i++)f.controller.onStep(i,i+20);assert.deepEqual(f.calls.pulse.slice(16).map(call=>call[1]),notes);f.state.appearance.cellScale=.65;f.resize(844,333);for(let i=0;i<16;i++)f.controller.onStep(i,i+40);assert.deepEqual(f.calls.pulse.slice(32).map(call=>call[1]),notes);}finally{f.destroy();}
 });
+
+test('Waveform dials own their gesture while a second finger continues playing',()=>{
+ const f=fixture(waveformDefinition,waveformMount);try{f.canvas.emit('pointerdown',850,160,1);assert.equal(f.calls.on.length,1);f.canvas.emit('pointerdown',72,292,2);assert.equal(f.calls.on.length,1);const before=f.state.sound.cutoff;f.canvas.emit('pointermove',72,232,2);assert.ok(f.state.sound.cutoff>before);f.canvas.emit('pointermove',920,100,2);assert.equal(f.calls.on.length,1);f.canvas.emit('pointercancel',920,100,2);assert.deepEqual(f.calls.off,[]);f.canvas.emit('pointerup',850,160,1);assert.deepEqual(f.calls.off,[['waveform-1']]);}finally{f.destroy();}
+});
+
+test('Geo envelope controls own their gesture without stealing a sounding map contact',()=>{
+ const f=fixture(geoDefinition,geoMount);try{f.canvas.emit('pointerdown',240,260,1);f.canvas.emit('pointerdown',280,606,2);assert.equal(f.calls.on.length,1);const attack=f.state.sound.attack,yaw=f.controller.getData().yaw;f.canvas.emit('pointermove',400,606,2);assert.ok(f.state.sound.attack>attack);f.canvas.emit('pointermove',900,180,2);assert.equal(f.controller.getData().yaw,yaw);f.canvas.emit('pointercancel',900,180,2);assert.deepEqual(f.calls.off,[]);f.canvas.emit('pointerup',240,260,1);assert.deepEqual(f.calls.off,[['geo-1']]);}finally{f.destroy();}
+});
+
+test('Census route graph edits its locked step and cancellation restores its original route',()=>{
+ const f=fixture(censusDefinition,censusMount);try{const original=f.controller.getData().route[5];f.canvas.emit('pointerdown',204,635,3);assert.equal(f.controller.getData().editStep,5);f.canvas.emit('pointermove',204,680,3);assert.ok(f.controller.getData().route[5].v>original.v);assert.equal(f.calls.on.length,1);f.canvas.emit('pointercancel',204,680,3);assert.deepEqual(f.controller.getData().route[5],original);assert.deepEqual(f.calls.off,[['census-3']]);f.canvas.emit('pointerdown',204,635,4);f.canvas.emit('pointermove',204,680,4);f.canvas.emit('pointerup',204,680,4);assert.ok(f.controller.getData().route[5].v>original.v);assert.equal(f.controller.getData().editStep,5);}finally{f.destroy();}
+});
+
+test('Census mirrored left lens headers move their shared region without sounding notes',()=>{
+ const f=fixture(censusDefinition,censusMount);try{const initial=f.controller.getData().panes[2];f.canvas.emit('pointerdown',315,65,6);f.canvas.emit('pointermove',355,90,6);f.canvas.emit('pointerup',355,90,6);assert.equal(f.calls.on.length,0);assert.ok(f.controller.getData().panes[2].u>initial.u);assert.ok(f.controller.getData().panes[2].v>initial.v);}finally{f.destroy();}
+});
+
+test('Waveform shared edits preserve independent sampled and continuous voice treatments',()=>{
+ const f=fixture(waveformDefinition,waveformMount);try{f.canvas.emit('pointerdown',250,160,1);f.canvas.emit('pointerdown',850,160,2);f.state.sound.crush=.75;f.controller.update('crush','sound');const left=f.calls.update.filter(call=>call[0]==='waveform-1').at(-1),right=f.calls.update.filter(call=>call[0]==='waveform-2').at(-1);assert.equal(left[2].crush,.75);assert.equal(right[2].crush,0);assert.equal(left[2].pan,-.32);assert.equal(right[2].pan,.32);}finally{f.destroy();}
+});

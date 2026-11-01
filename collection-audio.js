@@ -7,18 +7,28 @@ export const midiFrequency = midi => 440 * Math.pow(2, (number(midi, 60, 0, 127)
 /** A small native audio host. Musical source identity is independent of the
  * short-lived oscillator voices used for envelopes, sequencing and arpeggios. */
 export class CollectionAudio {
-  constructor({AudioContext, maxVoices=16, setInterval:interval, clearInterval:clear, onError} = {}) {
+  constructor({AudioContext, Tone, audioSession, maxVoices=16, setInterval:interval, clearInterval:clear, setTimeout:timeout, clearTimeout:clearTimeoutFn, resumeTimeoutMs=1800, onError, onStateChange} = {}) {
+    // Production uses the same standardized Web Audio platform as Signal. An
+    // injected/native context remains available for tests and library fallback.
+    this._Tone = AudioContext ? null : Tone || globalThis.Tone;
     this._Context = AudioContext || globalThis.AudioContext || globalThis.webkitAudioContext;
     this._setInterval = interval || globalThis.setInterval.bind(globalThis);
     this._clearInterval = clear || globalThis.clearInterval.bind(globalThis);
+    this._setTimeout = timeout || globalThis.setTimeout.bind(globalThis);
+    this._clearTimeout = clearTimeoutFn || globalThis.clearTimeout.bind(globalThis);
+    this._resumeTimeoutMs = number(resumeTimeoutMs,1800,50,10000);
+    this._audioSession = audioSession === undefined ? globalThis.navigator?.audioSession : audioSession;
+    this._previousSessionType = null; this._ownsSessionType = false;
     this._onError = onError || (error => console.error(error));
+    this._onStateChange = onStateChange || (() => {});
     this.maxVoices = clamp(Math.round(maxVoices), 1, 32);
     this.sound = {...DEFAULTS};
     this.performance = {hold:false,arp:false,bpm:112,arpRate:8};
     this.transport = {playing:false,bpm:112,onStep:null};
     this.sources = new Map();
     this._voices = []; this._serial = 0; this._generation = 0;
-    this._context = null; this._output = null; this._resume = null;
+    this._context = null; this._output = null; this._pendingStarts = new Set();
+    this._contextListener = null; this._wasRunning = false;
     this._timer = null; this._disposed = false; this._muted = false;
     this._nextSequence = null; this._sequenceStep = 0; this._stepEvents = [];
     this._nextArp = null; this._arpIndex = 0; this._insideStep = false;
@@ -32,18 +42,18 @@ export class CollectionAudio {
   get now() { return this._context?.currentTime || 0; }
 
   async start() {
-    if (this._disposed || !this._Context) return false;
+    if (this._disposed || (!this._Context && !this._Tone?.getContext)) return false;
     try {
+      this._prepareAudioSession();
       if (!this._context) this._createContext();
       this._wake();
-      if (this._context.state !== 'running') {
-        if (!this._resume) {
-          // Invoke resume in the original user gesture, before awaiting anything.
-          this._resume = Promise.resolve(this._context.resume()).finally(() => { this._resume = null; });
-        }
-        await this._resume;
-      }
-      if (this._disposed || this._context.state !== 'running') return false;
+      // Touch pointerdown may precede Safari's eligible activation event. A
+      // pending attempt must never prevent touchend/click from trying again.
+      // Signal calls Tone.start() for every gesture; preserve that behavior here.
+      const resumed = this._Tone ? this._Tone.start() : this._context.resume();
+      if (!await this._waitForRunning(resumed) || this._disposed || this._context.state!=='running') return false;
+      this.lastError = null; this._wasRunning = true;
+      for (const pending of [...this._pendingStarts]) pending.check();
       this._reconcile(); this._tick();
       return true;
     } catch (error) {
@@ -52,8 +62,53 @@ export class CollectionAudio {
     }
   }
 
+  _prepareAudioSession() {
+    // Web Audio's automatic session is ambient on supported platforms. This is
+    // a music instrument; request the music-playback category when available.
+    // Preserve an explicitly active recording session and restore our change.
+    try {
+      const session = this._audioSession;
+      if (!session || session.type === 'playback' || session.type === 'play-and-record') return;
+      if (!this._ownsSessionType) this._previousSessionType = session.type;
+      session.type = 'playback'; this._ownsSessionType = session.type === 'playback';
+    } catch { /* AudioSession is optional; unsupported platforms use Web Audio. */ }
+  }
+
+  _waitForRunning(resume) {
+    const context = this._context;
+    return new Promise(resolve => {
+      let settled = false, timer = null;
+      const pending = {check:null,finish:null};
+      const finish = (ready,error) => {
+        if (settled) return; settled = true;
+        if (timer!==null) this._clearTimeout(timer);
+        context.removeEventListener?.('statechange',pending.check);
+        this._pendingStarts.delete(pending);
+        if (error) this.lastError = error;
+        resolve(ready);
+      };
+      pending.finish = finish;
+      pending.check = () => {
+        if (this._disposed || context.state==='closed') finish(false);
+        else if (context.state==='running') finish(true);
+      };
+      this._pendingStarts.add(pending);
+      context.addEventListener?.('statechange',pending.check);
+      timer = this._setTimeout(() => {
+        if (context.state==='running') finish(true);
+        else finish(false,new Error('Audio activation did not complete. Tap Play to retry.'));
+      },this._resumeTimeoutMs);
+      Promise.resolve(resume).then(pending.check,error=>finish(false,error));
+      pending.check();
+    });
+  }
+
   _createContext() {
-    const context = new this._Context({latencyHint:'interactive'});
+    let context;
+    if (this._Tone?.getContext) {
+      if (this._Tone.getContext().rawContext.state==='closed' && this._Tone.Context && this._Tone.setContext) this._Tone.setContext(new this._Tone.Context({latencyHint:'interactive'}));
+      context = this._Tone.getContext().rawContext;
+    } else { this._Tone = null; context = new this._Context({latencyHint:'interactive'}); }
     this._context = context;
     const output = this._output = context.createGain();
     const compressor = this._compressor = context.createDynamicsCompressor();
@@ -62,11 +117,21 @@ export class CollectionAudio {
     const master = this._master = context.createGain(); master.gain.value = .72;
     const analyser = this._analyser = context.createAnalyser();
     analyser.fftSize = 512; analyser.smoothingTimeConstant = .7;
-    output.connect(compressor); compressor.connect(master); master.connect(analyser); analyser.connect(context.destination);
+    output.connect(compressor); compressor.connect(master);
+    // Metering observes a parallel branch, exactly as in Signal. Its display
+    // processing is never inserted between the music bus and the speakers.
+    master.connect(context.destination); master.connect(analyser);
     const delay = this._delay = context.createDelay(1.2);
     const feedback = this._feedback = context.createGain(), wet = this._wet = context.createGain();
     output.connect(delay); delay.connect(feedback); feedback.connect(delay); delay.connect(wet); wet.connect(compressor);
     this._applyEffects();
+    this._contextListener = () => {
+      if (context.state==='running') { this._wasRunning=true; return; }
+      if (this._wasRunning && !this._disposed) {
+        this._wasRunning=false; this.panic(); this._onStateChange(context.state);
+      }
+    };
+    context.addEventListener?.('statechange',this._contextListener);
     this._timer = this._setInterval(() => this._tick(), 25);
   }
 
@@ -253,7 +318,10 @@ export class CollectionAudio {
     filter.frequency.setValueAtTime(Math.min(context.sampleRate*.45,options.cutoff),when); filter.Q.setValueAtTime(options.resonance,when);
     if (pan.pan) pan.pan.setValueAtTime(options.pan,when);
     this._setCrush(voice,options.crush);
-    carrier.connect(filter); filter.connect(shaper); shaper.connect(amp); amp.connect(pan); pan.connect(this._output);
+    carrier.connect(filter);
+    if (voice.shaperActive) { filter.connect(shaper); shaper.connect(amp); }
+    else filter.connect(amp);
+    voice.connected = true; amp.connect(pan); pan.connect(this._output);
     modulator.connect(modulation); modulation.connect(carrier.frequency);
     amp.gain.setValueAtTime(0,when); amp.gain.linearRampToValueAtTime(voice.peak,when+options.attack); amp.gain.linearRampToValueAtTime(voice.peak*options.sustain,when+options.attack+options.decay);
     this._voices.push(voice);
@@ -265,10 +333,19 @@ export class CollectionAudio {
   _setCrush(voice, value) {
     if (voice.crush === value) return;
     voice.crush = value;
-    if (value < .001) { voice.shaper.curve = null; return; }
-    const curve = new Float32Array(4097), steps = Math.pow(2,Math.round(2+(1-value)*14));
-    for (let i=0;i<curve.length;i++) curve[i] = Math.round((i/(curve.length-1)*2-1)*steps)/steps;
-    voice.shaper.curve = curve;
+    const active = value>=.001;
+    if (!active) voice.shaper.curve = null;
+    else {
+      const curve = new Float32Array(4097), steps = Math.pow(2,Math.round(2+(1-value)*14));
+      for (let i=0;i<curve.length;i++) curve[i] = Math.round((i/(curve.length-1)*2-1)*steps)/steps;
+      voice.shaper.curve = curve;
+    }
+    if (voice.connected && active!==voice.shaperActive) {
+      voice.filter.disconnect(); voice.shaper.disconnect();
+      if (active) { voice.filter.connect(voice.shaper); voice.shaper.connect(voice.amp); }
+      else voice.filter.connect(voice.amp);
+    }
+    voice.shaperActive = active;
   }
 
   _updateVoice(voice, midi, rawOptions) {
@@ -369,6 +446,9 @@ export class CollectionAudio {
   dispose() {
     if (this._disposed) return;
     this.panic(); this._disposed = true;
+    for (const pending of [...this._pendingStarts]) pending.finish(false);
+    this._context?.removeEventListener?.('statechange',this._contextListener);
+    try { if (this._ownsSessionType && this._audioSession.type==='playback') this._audioSession.type=this._previousSessionType; } catch {}
     if (this._timer!==null) this._clearInterval(this._timer); this._timer=null;
     for (const node of [this._output,this._compressor,this._master,this._analyser,this._delay,this._feedback,this._wet]) try { node?.disconnect(); } catch {}
     return this._context?.close().catch(() => {});

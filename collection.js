@@ -1,4 +1,5 @@
 import {INSTRUMENTS} from './instruments/catalog.js';
+import {APPEARANCE_REVISION,SOUND_REVISION,migrateAppearance,migrateSound} from './instruments/appearance-migration.js';
 import {clamp,noteName} from './instruments/kit.js';
 import {CollectionAudio} from './collection-audio.js';
 import {createFloatingPanels} from './floating-panels.js';
@@ -22,7 +23,11 @@ const COMMON_SOUND=[
 let definition=null,controller=null,currentId='',loadToken=0,playRequest=0,raf=0,lastTime=0,lastSync=0;
 let state={bpm:112,root:50,scale:'dorian',playing:false,hold:false,arp:false,arpRate:8,sound:{...BASE_SOUND},appearance:{}};
 let controls={sound:[],appearance:[]},groups={sound:'',appearance:''},looks=[],undo=[],changeBefore=null,saveTimer=0,toastTimer=0;
-const pointers=new Set(),keys=new Set(),audio=new CollectionAudio();
+const pointers=new Set(),keys=new Set(),audio=new CollectionAudio({onStateChange:()=>{
+  const active=state.playing||state.hold||pointers.size>0||keys.size>0;
+  panic();
+  if(active&&!document.hidden)toast('Audio interrupted. Tap Play to resume.');
+}});
 const safeRead=key=>{try{return JSON.parse(localStorage.getItem(key)||'null');}catch{return null;}};
 const storageKey=()=>`duo.instrument.${currentId}.v1`;
 const escape=value=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -41,12 +46,19 @@ function sanitize(defaults,descriptors,raw){
   }
   return out;
 }
-function persisted(){return{schema:1,instrument:currentId,bpm:state.bpm,root:state.root,scale:state.scale,arp:state.arp,arpRate:state.arpRate,sound:state.sound,appearance:state.appearance,data:controller?.getData?.()};}
+function persisted(){return{schema:1,instrument:currentId,appearanceRevision:APPEARANCE_REVISION,soundRevision:SOUND_REVISION,bpm:state.bpm,root:state.root,scale:state.scale,arp:state.arp,arpRate:state.arpRate,sound:state.sound,appearance:state.appearance,data:controller?.getData?.()};}
 function saveNow(){clearTimeout(saveTimer);if(!definition)return;try{localStorage.setItem(storageKey(),JSON.stringify(persisted()));}catch{toast('Settings could not be saved on this device');}}
 function save(){clearTimeout(saveTimer);saveTimer=setTimeout(saveNow,180);}
 function toast(text){$('toast').textContent=text;$('toast').classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').classList.remove('visible'),2600);}
 function quantize(degree,octave=0){const scale=SCALES[state.scale]||SCALES.dorian,d=Math.round(degree),n=((d%scale.length)+scale.length)%scale.length;return clamp(state.root+scale[n]+12*(Math.floor(d/scale.length)+octave),21,108);}
 function setStatus(text){if($('instrument-status').textContent!==text)$('instrument-status').textContent=text;}
+function unlockFromGesture(reportFailure=false){
+  const token=loadToken;
+  // Keep the resume call in the native input dispatch. Safari may accept the
+  // ending touch even when its preceding pointerdown could not unlock audio.
+  const request=audio.start();
+  Promise.resolve(request).then(ready=>{if(ready===false&&reportFailure&&token===loadToken)toast('Audio could not start. Tap Play to retry.');}).catch(()=>{if(reportFailure&&token===loadToken)toast('Audio could not start. Tap Play to retry.');});
+}
 function setSound(patch){const resolved=sanitize({...state.sound},controls.sound,{...state.sound,...patch});Object.assign(state.sound,resolved);audio.configure(Object.fromEntries(Object.keys(patch).filter(key=>Object.hasOwn(resolved,key)).map(key=>[key,resolved[key]])));syncControls('sound');save();}
 function performanceState(){audio.setPerformance({hold:state.hold,arp:state.arp,bpm:state.bpm,arpRate:state.arpRate});}
 function syncTransport(){
@@ -112,7 +124,7 @@ async function loadInstrument(id){
     definition=module.definition;currentId=entry.id;groups={sound:'',appearance:''};undo=[];changeBefore=null;
     controls.sound=[...new Map([...(definition.commonSoundControls===false?[]:COMMON_SOUND),...(definition.soundControls||[])].map(c=>[c.key,c])).values()];controls.appearance=definition.appearanceControls||[];
     const raw=safeRead(storageKey())||{},soundDefaults={...BASE_SOUND,...definition.defaultSound};
-    state={bpm:clamp(Number(raw.bpm)||112,40,220),root:clamp(Number(raw.root)||50,48,59),scale:Object.hasOwn(SCALES,raw.scale)?raw.scale:'dorian',playing:false,hold:false,arp:Boolean(raw.arp),arpRate:[4,8,16].includes(raw.arpRate)?raw.arpRate:8,sound:sanitize(soundDefaults,controls.sound,raw.sound),appearance:sanitize(definition.defaultAppearance||{},controls.appearance,raw.appearance)};
+    state={bpm:clamp(Number(raw.bpm)||112,40,220),root:clamp(Number(raw.root)||50,48,59),scale:Object.hasOwn(SCALES,raw.scale)?raw.scale:'dorian',playing:false,hold:false,arp:Boolean(raw.arp),arpRate:[4,8,16].includes(raw.arpRate)?raw.arpRate:8,sound:sanitize(soundDefaults,controls.sound,migrateSound(currentId,raw,soundDefaults)),appearance:sanitize(definition.defaultAppearance||{},controls.appearance,migrateAppearance(currentId,raw,definition.defaultAppearance))};
     looks=(safeRead(`duo.instrument.${currentId}.looks.v1`)||[]);if(!Array.isArray(looks))looks=[];looks=looks.filter(v=>v&&typeof v.name==='string'&&v.appearance).slice(0,30);
     applyTheme();audio.configure(state.sound,{replace:true});performanceState();
     const api={get state(){return state;},audio,quantize,noteName,save,setStatus,toast,setSound,get reducedMotion(){return matchMedia('(prefers-reduced-motion: reduce)').matches;},noteOn:(id,midi,options={})=>audio.noteOn(id,midi,{...state.sound,...options}),noteUpdate:(id,midi,options={})=>audio.noteUpdate(id,midi,{...state.sound,...options}),noteOff:id=>audio.noteOff(id)};
@@ -145,8 +157,10 @@ document.addEventListener('keydown',e=>{
   if(tabs){const kind=tabs.dataset.tabs;rememberAppearance();groups[kind]=items[next].dataset.group;buildTabs(kind);tabs.querySelector('[aria-selected=true]').focus();}
   else items[next]?.focus();
 });
-document.addEventListener('pointerdown',e=>{if(!e.target.closest('#collection-menu,#collection-toggle'))closeDisclosure('collection-menu');if(!e.target.closest('#performance-popover,#performance-toggle'))closeDisclosure('performance-popover');if(stage.contains(e.target)){pointers.add(e.pointerId);audio.start().catch(()=>toast('Audio could not start. Tap Play to retry.'));}},{capture:true});
-for(const name of ['pointerup','pointercancel'])document.addEventListener(name,e=>pointers.delete(e.pointerId),{capture:true});
+document.addEventListener('pointerdown',e=>{if(!e.target.closest('#collection-menu,#collection-toggle'))closeDisclosure('collection-menu');if(!e.target.closest('#performance-popover,#performance-toggle'))closeDisclosure('performance-popover');if(stage.contains(e.target)){pointers.add(e.pointerId);unlockFromGesture();}},{capture:true});
+document.addEventListener('pointerup',e=>{if(pointers.has(e.pointerId)&&e.pointerType!=='mouse')unlockFromGesture(true);pointers.delete(e.pointerId);},{capture:true});
+document.addEventListener('pointercancel',e=>pointers.delete(e.pointerId),{capture:true});
+stage.addEventListener('touchend',()=>unlockFromGesture(true),{capture:true,passive:true});
 document.addEventListener('input',e=>{const input=e.target,key=input.dataset.key,kind=input.dataset.kind;if(!key||!kind)return;const c=controls[kind].find(c=>c.key===key);if(!c)return;if(kind==='appearance'&&!changeBefore)changeBefore={...state.appearance};const value=c.kind==='toggle'?input.checked:c.kind==='select'||c.kind==='color'?input.value:Number(input.value);state[kind][key]=value;if(kind==='sound')audio.configure({[key]:value});controller?.update?.(key,kind);syncControls(kind);if(kind==='appearance')$('appearance-preset').value='custom';save();});
 document.addEventListener('change',e=>{if(e.target.dataset.kind==='appearance')rememberAppearance();});
 $('appearance-preset').addEventListener('change',e=>{if(e.target.value==='reference')applyAppearance(definition.defaultAppearance);else if(e.target.value!=='custom')applyAppearance(looks[Number(e.target.value)]?.appearance||definition.defaultAppearance);});

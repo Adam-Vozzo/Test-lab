@@ -19,7 +19,7 @@ function fixture({fail}={}){
 test('complete instrument dependency graph installs with bounded downloads',async()=>{
   const f=fixture();await f.lifecycle('install');assert.equal(f.stores.size,1);assert.equal(f.peak,4);assert.equal(f.skipped,0);
   const cache=[...f.stores.values()][0],paths=[...cache.keys()].map(url=>url.slice(base.length));
-  assert.equal(paths.length,40);
+  assert.equal(paths.length,41);
   for(const path of paths){
     const file=new URL('../'+path,import.meta.url);await fs.access(file);
     if(!path.endsWith('.js'))continue;
@@ -45,6 +45,20 @@ test('offline navigation returns the matching shell and leaves other routes alon
   assert.equal((await f.request('instruments/granular.js')).body,base+'instruments/granular.js');
   for(const path of ['account','auth/callback','collection.html?token=private','https://other.test/app.js'])assert.equal(f.request(path,'navigate'),undefined);
   assert.equal(f.request('collection.html','cors','POST'),undefined);
+});
+
+test('offline fragment navigation resolves the instrument shell without widening query or account caching',async()=>{
+  const f=fixture();await f.lifecycle('install');f.setOffline();
+  for(const path of ['collection.html#carrier','collection.html#granular']){
+    assert.equal((await f.request(path,'navigate')).body,base+'collection.html');
+  }
+  for(const path of ['index.html#signal','./#signal']){
+    assert.equal((await f.request(path,'navigate')).body,base+'index.html');
+  }
+  assert.equal((await f.request('vendor/Tone.js#version')).body,base+'vendor/Tone.js');
+  for(const path of ['collection.html?token=private#carrier','account#profile','auth/callback#token','https://other.test/index.html#signal']){
+    assert.equal(f.request(path,'navigate'),undefined);
+  }
 });
 
 test('activation preserves unrelated caches and waits for the idle update message',async()=>{
