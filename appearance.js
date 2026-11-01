@@ -20,7 +20,7 @@ const clamp = (value,min,max) => Math.min(max,Math.max(min,value));
 const escape = value => String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const STORAGE_KEY = 'duo-visual-looks-v1';
 
-export function createAppearance(container, {getVisual,setVisual,getLook,setLook,onToast=()=>{}}) {
+export function createAppearance(container, {getVisual,setVisual,getLook,setLook,onToast=()=>{},getFullscreen=()=>({available:false,active:false}),onFullscreen=()=>{}}) {
   const controller = new AbortController();
   const events = {signal:controller.signal};
   let group = 'grid', advanced = false, activeSlot = 'A', strength = .22, pending = null;
@@ -131,6 +131,7 @@ export function createAppearance(container, {getVisual,setVisual,getLook,setLook
       const field=c.type==='select'?`<select id="${id}" data-key="${c.key}" aria-describedby="${descriptionId}">${c.options.map(([key,label])=>`<option value="${key}" ${v===key?'selected':''}>${label}</option>`).join('')}</select>`:`<input id="${id}" type="range" data-key="${c.key}" min="${c.min}" max="${c.max}" step="${c.step}" value="${v}" aria-label="${label}" aria-describedby="${descriptionId}">`;
       return `<label class="ae-control" for="${id}" data-target="${escape(c.target)}"><span class="ae-label">${label}</span><output class="ae-value" for="${id}">${c.type==='select'?'':formatVisualValue(c,v)}</output>${field}${description}</label>`;
     }).join('');
+    if(group==='layout'&&getFullscreen().available)body.insertAdjacentHTML('beforeend',`<div class="ae-control ae-display-control"><span class="ae-label">Display</span><button type="button" class="ae-button" data-action="fullscreen" aria-describedby="appearance-fullscreen-description"></button><small class="ae-control-description" id="appearance-fullscreen-description">Use the display area available to this browser.</small></div>`);
     q('[data-action=advanced]').hidden=!g.controls.some(c=>c.advanced);
     updateGlobal();g.controls.forEach(c=>updateControl(c.key));
   }
@@ -158,9 +159,10 @@ export function createAppearance(container, {getVisual,setVisual,getLook,setLook
     q('.ae-strength input').style.setProperty('--range-fill',`${(strength-.03)/.72*100}%`);
     const currentSaved=saved.find(p=>p.id===selectedSaved);if(currentSaved&&!equal(currentSaved.visual,read()))selectedSaved='';
     lookSelect.value=selectedSaved||getLook()||'ember';
+    const fullscreen=q('[data-action=fullscreen]');if(fullscreen){fullscreen.textContent=getFullscreen().active?'Exit fullscreen':'Enter fullscreen';fullscreen.setAttribute('aria-pressed',String(getFullscreen().active));}
   }
   function visibleControls(g,visual){return g.controls.filter(c=>(!c.advanced||advanced)&&(!c.onlyWhen||visual[c.onlyWhen.key]===c.onlyWhen.value)&&(!c.exceptWhen||visual[c.exceptWhen.key]!==c.exceptWhen.value));}
-  function controlSignature(controls,visual){return group+'|'+advanced+'|'+visual.matrixShape+'|'+controls.map(c=>c.key).join(',');}
+  function controlSignature(controls,visual){return group+'|'+advanced+'|'+visual.matrixShape+'|'+(group==='layout'&&getFullscreen().available)+'|'+controls.map(c=>c.key).join(',');}
   function refresh(){
     const visual=read(),g=VISUAL_GROUPS.find(g=>g.id===group);
     if(renderedControls!==controlSignature(visibleControls(g,visual),visual)){
@@ -194,6 +196,7 @@ export function createAppearance(container, {getVisual,setVisual,getLook,setLook
     const button=event.target.closest('[data-action]');if(!button)return;
     const action=button.dataset.action;commit();
     if(action==='tools'){const tools=q('.ae-tools');tools.hidden=!tools.hidden;button.setAttribute('aria-expanded',String(!tools.hidden));button.innerHTML=tools.hidden?'Tools <span aria-hidden="true">＋</span>':'Tools <span aria-hidden="true">−</span>';if(!tools.hidden)q('.ae-scroll').scrollTop=q('.ae-scroll').scrollHeight;}
+    else if(action==='fullscreen'){onFullscreen();}
     else if(action==='advanced'){advanced=!advanced;renderControls();}
     else if(action==='lock'){locks.has(group)?locks.delete(group):locks.add(group);updateGlobal();}
     else if(action==='reset-group'){const defaults=LOOKS[getLook()]?.visual||DEFAULT_VISUAL,next=read();for(const c of VISUAL_GROUPS.find(g=>g.id===group).controls)next[c.key]=defaults[c.key];apply(next);}
@@ -242,6 +245,7 @@ export function createAppearance(container, {getVisual,setVisual,getLook,setLook
     if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='z'&&!event.target.matches('input:not([type=range])')){event.preventDefault();q(`[data-action="${event.shiftKey?'redo':'undo'}"]`).click();}
     if(event.key==='Escape'&&!saveForm.hidden){event.preventDefault();event.stopPropagation();saveForm.hidden=true;q('[data-action=save]').focus();}
   },events);
+  window.addEventListener('duo:pwa',refresh,events);
   refreshLooks();renderControls();
   return {refresh,destroy(){controller.abort();container.innerHTML='';}};
 }

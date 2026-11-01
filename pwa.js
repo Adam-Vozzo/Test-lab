@@ -8,9 +8,24 @@ export function setupPWA({isPlaying = () => false, onToast = () => {}} = {}) {
   let destroyed = false;
   let reloadStarted = false;
   let announcedUpdate = false;
+  let fullscreenPending = false;
   const hadController = Boolean(navigator.serviceWorker?.controller);
+  const fullscreenDisplay = window.matchMedia('(display-mode: fullscreen)');
+  const fullscreenElement = () => document.fullscreenElement || document.webkitFullscreenElement;
+  const fullscreen = () => Boolean(fullscreenElement()) || fullscreenDisplay.matches;
+  const fullscreenMethods = () => {
+    if (document.fullscreenEnabled === true && typeof document.documentElement.requestFullscreen === 'function' && typeof document.exitFullscreen === 'function') {
+      return {enter: () => document.documentElement.requestFullscreen({navigationUI: 'hide'}), exit: () => document.exitFullscreen()};
+    }
+    if (document.webkitFullscreenEnabled === true && typeof document.documentElement.webkitRequestFullscreen === 'function' && typeof document.webkitExitFullscreen === 'function') {
+      return {enter: () => document.documentElement.webkitRequestFullscreen(), exit: () => document.webkitExitFullscreen()};
+    }
+    return null;
+  };
+  // A manifest-launched fullscreen window has no DOM fullscreen element to exit.
+  const canFullscreen = () => !(fullscreenDisplay.matches && !fullscreenElement()) && Boolean(fullscreenMethods());
   const emit = () => window.dispatchEvent(new CustomEvent('duo:pwa', {
-    detail: {canInstall: Boolean(installPrompt), updateReady: Boolean(registration?.waiting)}
+    detail: {canInstall: Boolean(installPrompt), updateReady: Boolean(registration?.waiting), canFullscreen: canFullscreen(), fullscreen: fullscreen()}
   }));
 
   const reloadWhenIdle = () => {
@@ -53,6 +68,9 @@ export function setupPWA({isPlaying = () => false, onToast = () => {}} = {}) {
 
   window.addEventListener('beforeinstallprompt', beforeInstall);
   window.addEventListener('appinstalled', installed);
+  document.addEventListener('fullscreenchange', emit);
+  document.addEventListener('webkitfullscreenchange', emit);
+  fullscreenDisplay.addEventListener?.('change', emit);
   document.addEventListener('visibilitychange', reloadWhenIdle);
   window.addEventListener('duo:transport', reloadWhenIdle);
   const interval = window.setInterval(reloadWhenIdle, 2000);
@@ -80,8 +98,26 @@ export function setupPWA({isPlaying = () => false, onToast = () => {}} = {}) {
   return {
     ready,
     get canInstall() { return Boolean(installPrompt); },
+    get canFullscreen() { return canFullscreen(); },
+    get fullscreen() { return fullscreen(); },
     get installed() {
-      return window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+      return window.matchMedia('(display-mode: standalone)').matches || fullscreenDisplay.matches || navigator.standalone === true;
+    },
+    async toggleFullscreen() {
+      if (destroyed || fullscreenPending || !canFullscreen()) return false;
+      const methods = fullscreenMethods();
+      fullscreenPending = true;
+      try {
+        // Call immediately within the button gesture; no async work before entry.
+        await (fullscreenElement() ? methods.exit() : methods.enter());
+        return true;
+      } catch {
+        onToast('Fullscreen request was blocked by the browser');
+        return false;
+      } finally {
+        fullscreenPending = false;
+        if (!destroyed) emit();
+      }
     },
     async checkUpdate() {
       const active = registration || await ready;
@@ -108,6 +144,9 @@ export function setupPWA({isPlaying = () => false, onToast = () => {}} = {}) {
       window.clearInterval(interval);
       window.removeEventListener('beforeinstallprompt', beforeInstall);
       window.removeEventListener('appinstalled', installed);
+      document.removeEventListener('fullscreenchange', emit);
+      document.removeEventListener('webkitfullscreenchange', emit);
+      fullscreenDisplay.removeEventListener?.('change', emit);
       document.removeEventListener('visibilitychange', reloadWhenIdle);
       window.removeEventListener('duo:transport', reloadWhenIdle);
       navigator.serviceWorker?.removeEventListener('controllerchange', controllerChanged);

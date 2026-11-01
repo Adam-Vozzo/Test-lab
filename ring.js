@@ -26,10 +26,11 @@ const finishFragment = `
   uniform float glow, grain, vignette, contrast, saturation, hue, phase, blur, scanlines, fringe, exposure, temperature, tint;
   uniform vec3 background; uniform sampler2D particleSource, sceneDepth; uniform vec4 particleRect; uniform float particleDepth, particleEnabled;
   vec3 rotateHue(vec3 c,float angle){vec3 k=normalize(vec3(1.));return c*cos(angle)+cross(k,c)*sin(angle)+k*dot(k,c)*(1.-cos(angle));}
+  vec3 sceneColor(vec2 uv){vec4 texel=texture2D(source,uv);return texel.rgb/max(texel.a,.001);}
   void main(){
     vec2 px=1./resolution;vec4 raw=texture2D(source,vUv);vec3 c=raw.rgb/max(raw.a,.001);
-    if(blur>.001){vec2 d=px*blur*4.;c=mix(c,(texture2D(source,vUv+vec2(d.x,0.)).rgb+texture2D(source,vUv-vec2(d.x,0.)).rgb+texture2D(source,vUv+vec2(0.,d.y)).rgb+texture2D(source,vUv-vec2(0.,d.y)).rgb)*.25,blur*.65);}
-    if(fringe>.001){vec2 off=(vUv-.5)*fringe*.004;c.r=texture2D(source,vUv+off).r;c.b=texture2D(source,vUv-off).b;}
+    if(blur>.001){vec2 d=px*blur*4.;c=mix(c,(sceneColor(vUv+vec2(d.x,0.))+sceneColor(vUv-vec2(d.x,0.))+sceneColor(vUv+vec2(0.,d.y))+sceneColor(vUv-vec2(0.,d.y)))*.25,blur*.65);}
+    if(fringe>.001){vec2 off=(vUv-.5)*fringe*.004;c.r=sceneColor(vUv+off).r;c.b=sceneColor(vUv-off).b;}
     vec3 bloomColor=texture2D(bloom,vUv).rgb*glow*1.7;c+=bloomColor;
     float lum=dot(c,vec3(.2126,.7152,.0722));c=mix(vec3(lum),c,saturation);c=rotateHue(c,hue);c=(c-.18)*contrast+.18;
     c*=vec3(1.+temperature*.18+tint*.07,1.-tint*.09,1.-temperature*.18+tint*.07);
@@ -38,15 +39,18 @@ const finishFragment = `
     float edge=length((vUv-.5)*vec2(1.,.84));c*=1.-smoothstep(.2,.76,edge)*vignette*.75;
     float noise=fract(sin(dot(floor(vUv*resolution),vec2(12.9898,78.233))+phase)*43758.5453)-.5;
     c+=noise*grain*.13;c*=1.-scanlines*.08*(.5+.5*sin(vUv.y*resolution.y*3.14159));
-    c=max(c,vec3(0.));
+    // The browser's transparent canvas and the Canvas2D particle upload both
+    // use premultiplied alpha. Keep that representation at every boundary;
+    // straight RGB in a nearly transparent bloom texel must never become a halo.
+    coverage=clamp(coverage,0.,1.);vec3 premultiplied=clamp(c,0.,1.)*coverage;
     if(particleEnabled>.5){
       vec2 fieldUv=vec2(particleRect.x+vUv.x*particleRect.z,1.-particleRect.y-(1.-vUv.y)*particleRect.w);
       vec4 field=texture2D(particleSource,fieldUv);
-      field.a*=step(particleDepth-.000001,texture2D(sceneDepth,vUv).r);
-      float alpha=field.a+coverage*(1.-field.a);
-      c=(field.rgb*field.a+c*coverage*(1.-field.a))/max(alpha,.000001);coverage=alpha;
+      field*=step(particleDepth-.000001,texture2D(sceneDepth,vUv).r);
+      premultiplied=field.rgb+premultiplied*(1.-field.a);
+      coverage=field.a+coverage*(1.-field.a);
     }
-    gl_FragColor=vec4(c,coverage);
+    gl_FragColor=vec4(premultiplied,coverage);
   }`;
 
 /** A self-contained, pointer-transparent artwork layer for the playable voice ring. */
@@ -70,7 +74,7 @@ export class RingScene {
   }
 
   setupWebGL() {
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: false, alpha: true, premultipliedAlpha: false, powerPreference: 'high-performance', preserveDrawingBuffer: true });
+    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: false, alpha: true, premultipliedAlpha: true, powerPreference: 'high-performance', preserveDrawingBuffer: true });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.7));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace; this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.scene = new THREE.Scene(); this.renderer.setClearColor(0,0);
@@ -636,7 +640,7 @@ export class RingScene {
     if(!layer?.canvas?.width||!layer.canvas.height||!(layer.width>0&&layer.height>0&&rect?.w>0&&rect?.h>0)||![rect.x,rect.y,rect.w,rect.h].every(Number.isFinite)){this.releaseParticleLayer();layer?.onUnavailable?.();return null;}
     this.particleLayer=layer;if(this.fallback)return layer;
     // WebGL2 texture storage is immutable: a resized canvas needs fresh storage.
-    if(this.particleTexture?.image!==layer.canvas||this.particleTextureWidth!==layer.canvas.width||this.particleTextureHeight!==layer.canvas.height){this.particleTexture?.dispose();this.particleTexture=new THREE.CanvasTexture(layer.canvas);this.particleTextureWidth=layer.canvas.width;this.particleTextureHeight=layer.canvas.height;this.particleTexture.colorSpace=THREE.NoColorSpace;this.particleTexture.generateMipmaps=false;this.particleTexture.minFilter=THREE.LinearFilter;this.particleTexture.magFilter=THREE.LinearFilter;this.particleTextureVersion=null;}
+    if(this.particleTexture?.image!==layer.canvas||this.particleTextureWidth!==layer.canvas.width||this.particleTextureHeight!==layer.canvas.height){this.particleTexture?.dispose();this.particleTexture=new THREE.CanvasTexture(layer.canvas);this.particleTextureWidth=layer.canvas.width;this.particleTextureHeight=layer.canvas.height;this.particleTexture.colorSpace=THREE.NoColorSpace;this.particleTexture.premultiplyAlpha=true;this.particleTexture.generateMipmaps=false;this.particleTexture.minFilter=THREE.LinearFilter;this.particleTexture.magFilter=THREE.LinearFilter;this.particleTextureVersion=null;}
     if(this.particleTextureVersion!==layer.version){this.particleTexture.needsUpdate=true;this.particleTextureVersion=layer.version;}
     const u=this.postMaterial.uniforms;u.particleSource.value=this.particleTexture;u.particleRect.value.set(rect.x/layer.width,rect.y/layer.height,rect.w/layer.width,rect.h/layer.height);
     this._particleCenter??=new THREE.Vector3();this._particleCenter.setFromMatrixPosition(this.ringGroup.matrixWorld).project(this.camera);u.particleDepth.value=this._particleCenter.z*.5+.5;u.particleEnabled.value=1;
