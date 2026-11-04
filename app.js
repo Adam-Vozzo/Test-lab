@@ -9,6 +9,8 @@ import {enableSecondaryButtonTaps} from './touch-controls.js';
 import {createFloatingPanels} from './floating-panels.js';
 import {createTempoControl} from './tempo-control.js';
 import {enableRangeScrubbing} from './range-scrub.js';
+import {installViewportFit} from './viewport-fit.js';
+const releaseViewport=installViewportFit();
 const UI_FONT = getComputedStyle(document.documentElement).getPropertyValue('--ui-font').trim() || 'monospace';
 
 const $=id=>document.getElementById(id), clamp=(x,a,b)=>Math.min(b,Math.max(a,x)), TAU=Math.PI*2;
@@ -83,6 +85,9 @@ const signalField=new SignalField(document.querySelector('.workspace'),{getVisua
 scene.setParticleLayerProvider(now=>signalField.updateParticleLayer(now));
 const tempoControl=createTempoControl($('tempo-control'));
 const signalRanges=enableRangeScrubbing();
+const signalGestureEvents=new AbortController();
+for(const event of ['pointerdown','touchstart','click'])document.querySelector('.workspace').addEventListener(event,()=>{engine.init().catch(()=>{});},{capture:true,passive:true,signal:signalGestureEvents.signal});
+for(const event of ['pointerup','touchend'])document.querySelector('.workspace').addEventListener(event,()=>{engine.init({completeGesture:true}).catch(()=>{});},{capture:true,passive:true,signal:signalGestureEvents.signal});
 const pwa=setupPWA({isPlaying:()=>state.playing||livePointers.size>0||keys.size>0||state.hold||ringGestures.size>0||galaxy.dragging||floatingPanels.dragging||tempoControl.active||signalRanges.active,onToast:toast});
 const appearance=createAppearance($('appearance'),{getVisual:()=>state.visual,setVisual,getLook:()=>state.look,setLook,onToast:toast,getFullscreen:()=>({available:pwa.canFullscreen,active:pwa.fullscreen}),onFullscreen:()=>pwa.toggleFullscreen()});
 
@@ -145,7 +150,7 @@ ringStage.addEventListener('pointermove',e=>{
 function finishRingGesture(e,cancelled=false){
  const mode=ringGestures.get(e.pointerId);if(!mode)return;ringGestures.delete(e.pointerId);ringPoints.delete(e.pointerId);
  if(mode==='orbit')scene.endOrbit(e.pointerId,cancelled);
- if(mode==='play'){scene.releaseContact(e.pointerId);livePointers.delete(e.pointerId);if(cancelled||!state.hold)engine.noteOff('pointer-'+e.pointerId);}
+ if(mode==='play'){scene.releaseContact(e.pointerId);livePointers.delete(e.pointerId);if(cancelled||!state.hold)engine.noteOff('pointer-'+e.pointerId,{force:cancelled});}
  if(mode==='pinch'||mode==='orbit')resumeRingNavigation();
  ringStage.style.cursor=[...ringGestures.values()].some(mode=>mode==='orbit'||mode==='pinch')?'grabbing':'grab';
 }
@@ -194,4 +199,4 @@ function drawEnvelope(){const[c,w,h]=fit($('envelope-canvas'));if(!w||!h)return;
  else{c.lineTo(0,h);c.closePath();const g=c.createLinearGradient(0,0,0,h);g.addColorStop(0,hexAlpha(p.accent,.2));g.addColorStop(1,hexAlpha(p.accent,0));c.fillStyle=g;c.fill();}
  $('attack-handle').style.left=ax+'px';$('attack-handle').style.top='5px';$('release-handle').style.left=rx+'px';$('release-handle').style.top=(h-3)+'px';}
 let lastDraw=0;function animate(now){requestAnimationFrame(animate);if(document.hidden||now-lastDraw<30)return;lastDraw=now;notePulse*=.9;drawSequence();drawEnvelope();updateStepMarker();const a=activity();const n=(a.voices||[]).filter(v=>v.envelope>.01).length;$('voice-count').textContent='VOICES '+String(n).padStart(2,'0')+' / 08';}requestAnimationFrame(animate);
-window.addEventListener('beforeunload',()=>{disableSecondaryButtonTaps();signalRanges();tempoControl.destroy();anchorObserver.disconnect();scene.setParticleLayerProvider(null);signalField.dispose();galaxy.dispose();scene.dispose();engine.dispose();pwa.destroy();});
+window.addEventListener('beforeunload',()=>{disableSecondaryButtonTaps();signalRanges();releaseViewport();signalGestureEvents.abort();tempoControl.destroy();anchorObserver.disconnect();scene.setParticleLayerProvider(null);signalField.dispose();galaxy.dispose();scene.dispose();engine.dispose();pwa.destroy();});

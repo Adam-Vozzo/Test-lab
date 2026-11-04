@@ -2,7 +2,7 @@ export const INSTRUMENTS=[
   {id:'signal',name:'Signal',batch:0,description:'Filter galaxy · voice ring',colors:['#e83b77','#79d9ff'],href:'./index.html'},
   {id:'carrier',name:'Carrier / Modulator',batch:1,description:'Two-hand frequency modulation',colors:['#ef785d','#8372d6'],load:()=>import('./carrier.js')},
   {id:'cellular',name:'Cellular / Automata',batch:1,description:'Contact assembly · cellular automaton',colors:['#85e4ee','#9d293c'],load:()=>import('./cellular.js')},
-  {id:'census',name:'Cell Census',batch:1,description:'Drawn note paths · timbre regions · EQ',colors:['#f8b536','#6d83e5'],load:()=>import('./census.js')},
+  {id:'census',name:'Cell Census',batch:1,description:'Scan routing · spectrum · EQ',colors:['#d8ff23','#ff568f'],load:()=>import('./census.js')},
   {id:'swarm',name:'Machine / Swarm',batch:2,description:'Pitch lanes · gesture flow',colors:['#e6ce6a','#a29afa'],load:()=>import('./swarm.js')},
   {id:'graticule',name:'Graticule / Lissajous',batch:2,description:'Sonar note map · oscillator phase',colors:['#f3a64c','#8eb9ff'],load:()=>import('./graticule.js')},
   {id:'waveform',name:'Machine / Man',batch:2,description:'Touch transfer · sampled synthesis',colors:['#d96c64','#a2c0ae'],load:()=>import('./waveform.js')},

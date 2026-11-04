@@ -33,7 +33,7 @@ test('shared definitions preserve module ownership and omit irrelevant split con
   assert.equal(original.appearanceControls.length,1);assert.equal(combined.defaultAppearance.sceneGrain,SHARED_APPEARANCE_DEFAULTS.sceneGrain);
   const single=withSharedAppearance({...original,layoutMode:'single'});
   assert.ok(!single.appearanceControls.some(c=>c.section==='Layout'));assert.ok(!Object.hasOwn(single.defaultAppearance,'leftWidth'));
-  assert.ok(single.appearanceControls.some(c=>c.key==='sceneBloom'));
+  assert.ok(single.appearanceControls.some(c=>c.key==='sceneBlur'));assert.ok(!single.appearanceControls.some(c=>c.key.startsWith('sceneBloom')));
 });
 
 function fixture(){

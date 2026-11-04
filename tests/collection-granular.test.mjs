@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {grainPlan,grainWindow,createSeedBuffer,GrainCloud,grainArpDegree,grainWindowIndex,retainGrainClock} from '../instruments/granular.js';
+import {grainPlan,grainWindow,createSeedBuffer,GrainCloud,grainArpDegree,grainWindowIndex,retainGrainClock,toneTableCoordinates,toneTableCursor} from '../instruments/granular.js';
 import {circuitPacketPhase,pathPoint,circuitWind,touchWindGain} from '../instruments/swarm.js';
 
 test('grain windows start and end at zero and remain bounded',()=>{
@@ -30,9 +30,10 @@ test('grain arpeggiation follows the selected tempo and quarter/eighth/sixteenth
 });
 
 function fixture(){
-  const nodes=[],tables=[];const param=()=>({values:[],setValueAtTime(...v){this.values.push(v);},setValueCurveAtTime(...v){this.values.push(v);}});
+  const nodes=[],tables=[];const param=()=>({values:[],setValueAtTime(...v){this.values.push(v);},setValueCurveAtTime(...v){this.values.push(v);},setTargetAtTime(...v){this.values.push(v);}});
   const node=()=>{const n={connections:[],disconnected:0,connect(to){this.connections.push(to);},disconnect(){this.disconnected++;}};nodes.push(n);return n;};
   const context={currentTime:2,createBufferSource(){return Object.assign(node(),{playbackRate:param(),start(...args){this.started=args;},stop(...args){this.stopped=args;}});},createGain(){return Object.assign(node(),{gain:param()});},createStereoPanner(){return Object.assign(node(),{pan:param()});}};
+  context.createBiquadFilter=()=>Object.assign(node(),{kind:'tone',frequency:param(),Q:{value:0}});
   context.createPeriodicWave=(real,imag,options)=>{const table={real,imag,options};tables.push(table);return table;};
   context.createOscillator=()=>Object.assign(node(),{frequency:param(),setPeriodicWave(table){this.table=table;},start(...args){this.started=args;},stop(...args){this.stopped=args;}});
   const audio={context,output:{}},cloud=new GrainCloud(audio);cloud.setBuffer({duration:6});return{cloud,nodes,audio,tables};
@@ -40,9 +41,9 @@ function fixture(){
 
 test('actual grains schedule source/window/pan at the audio clock and report the same events',()=>{
   const f=fixture();const event=f.cloud.schedule(2.08,{duration:.18,position:.5,pitch:12,jitter:0,pitchJitter:0,stereo:.5,gain:.2,density:18});
-  assert.equal(event.when,2.08);assert.ok(Math.abs(event.until-2.26)<1e-10);assert.equal(f.nodes[0].started[0],event.when);assert.equal(f.nodes[0].started[1],event.offset);assert.equal(f.nodes[0].playbackRate.values[0][0],2);assert.equal(f.nodes[1].gain.values[0][1],event.when);assert.equal(f.nodes[2].connections[0],f.audio.output);
+  assert.equal(event.when,2.08);assert.ok(Math.abs(event.until-2.26)<1e-10);assert.equal(f.nodes[0].started[0],event.when);assert.equal(f.nodes[0].started[1],event.offset);assert.equal(f.nodes[0].playbackRate.values[0][0],2);assert.equal(f.nodes[1].gain.values[0][1],event.when);assert.equal(f.nodes[2].connections[0],f.cloud.tone);assert.equal(f.cloud.tone.connections[0],f.audio.output);
   assert.equal(event.bufferLength,f.nodes[0].started[2]);assert.equal(event.bufferLength,event.duration*2); // The visual source window follows transposed buffer time.
-  assert.equal(f.cloud.pool.size,1);f.nodes[0].onended();assert.equal(f.cloud.pool.size,0);assert.ok(f.nodes.every(n=>n.disconnected===1));
+  assert.equal(f.cloud.pool.size,1);f.nodes[0].onended();assert.equal(f.cloud.pool.size,0);assert.ok(f.nodes.filter(n=>n!==f.cloud.tone).every(n=>n.disconnected===1));f.cloud.destroy();
 });
 
 test('grain pool is bounded and teardown stops and disconnects every source',()=>{
@@ -63,7 +64,7 @@ test('low grain densities keep their longer intervals instead of restarting ever
 
 test('grain wavetable layer uses the same clock, exact coefficients, bounded mix and owned cleanup',()=>{
   const f=fixture(),options={duration:.18,position:.5,pitch:12,pitchJitter:0,root:57,gain:.2,density:18,tableMix:.5,tablePosition:.63,tableWarp:.4};
-  const event=f.cloud.schedule(2.1,options),oscillator=f.nodes.find(n=>n.frequency),tableGain=f.nodes.at(-1);
+  const event=f.cloud.schedule(2.1,options),oscillator=f.nodes.find(n=>n.setPeriodicWave),tableGain=f.nodes.at(-1);
   assert.equal(oscillator.started[0],event.when);assert.equal(oscillator.frequency.values[0][0],440);assert.equal(f.tables[0].options.disableNormalization,true);
   assert.equal(tableGain.gain.values[0][1],event.when);const sourcePeak=Math.max(...f.nodes[1].gain.values[0][0]),tablePeak=Math.max(...tableGain.gain.values[0][0]);assert.ok(Math.abs(tablePeak/sourcePeak-.8)<1e-6);
   f.cloud.schedule(2.2,options);assert.equal(f.tables.length,1);f.cloud.destroy();assert.equal(f.cloud.pool.size,0);assert.ok(f.nodes.every(n=>n.disconnected===1));assert.deepEqual(oscillator.stopped,[]);
@@ -80,8 +81,8 @@ test('stopping grains also removes unsounded future visual events',()=>{
 
 test('cancelling one touch stops its buffer and table layers without cancelling another touch',()=>{
   const f=fixture(),options={duration:.2,position:.5,pitch:0,gain:.2,density:18,tableMix:.5};
-  const first=f.cloud.schedule(2.08,{...options,contactId:1}),second=f.cloud.schedule(2.1,{...options,contactId:2});f.cloud.cancelContact(1);
-  assert.equal(f.cloud.pool.size,1);assert.deepEqual(f.cloud.events.map(e=>e.id),[second.id]);assert.ok(f.nodes.slice(0,5).every(n=>n.disconnected===1));assert.ok(f.nodes.slice(5).every(n=>n.disconnected===0));assert.notEqual(first.id,second.id);f.cloud.destroy();
+  const first=f.cloud.schedule(2.08,{...options,contactId:1}),firstNodes=[...f.cloud.pool][0],second=f.cloud.schedule(2.1,{...options,contactId:2}),secondNodes=[...f.cloud.pool][1];f.cloud.cancelContact(1);
+  assert.equal(f.cloud.pool.size,1);assert.deepEqual(f.cloud.events.map(e=>e.id),[second.id]);assert.ok(['source','gain','pan','oscillator','tableGain'].every(k=>firstNodes[k].disconnected===1));assert.ok(['source','gain','pan','oscillator','tableGain'].every(k=>secondNodes[k].disconnected===0));assert.equal(f.cloud.tone.disconnected,0);assert.notEqual(first.id,second.id);f.cloud.destroy();
 });
 
 test('circuit packets stay hidden before their note and follow routed distance to the sculpture',()=>{
@@ -92,4 +93,20 @@ test('circuit packets stay hidden before their note and follow routed distance t
 test('sequence wind starts at sculpture arrival and sounding touches modulate physical force',()=>{
   const event={when:5,travel:.5,cutoff:2400,resonance:2.8,spread:7};assert.equal(circuitWind(event,5.49),null);assert.ok(circuitWind(event,5.5).force>0);assert.ok(circuitWind(event,6).front>circuitWind(event,5.6).front);assert.ok(circuitWind(event,6).force<circuitWind(event,5.6).force);assert.equal(circuitWind(event,8.3),null);
   assert.ok(touchWindGain(.1,60)>touchWindGain(0,60));assert.ok(touchWindGain(.1,72)>touchWindGain(.1,48));assert.equal(circuitWind(event,5.6,0).force,0);
+});
+
+test('harmonic source phase aligns overlapping internal grains and the tone filter processes both layers',()=>{
+ const f=fixture(),options={duration:.32,position:.4,pitch:0,jitter:.035,pitchJitter:0,gain:.24,density:22,tableMix:.12,toneCutoff:2300,coherent:true};
+ const a=f.cloud.schedule(2.08,options),b=f.cloud.schedule(2.13,options),frequency=146.8323839587;
+ const phase=n=>((n%1)+1)%1;assert.ok(Math.abs(phase(a.offset*frequency)-phase(a.when*frequency))<1e-10);assert.ok(Math.abs(phase(b.offset*frequency)-phase(b.when*frequency))<1e-10);
+ assert.equal(f.cloud.tone.type,'lowpass');assert.equal(f.cloud.tone.frequency.values.at(-1)[0],2300);for(const n of f.cloud.pool){assert.equal(n.pan.connections[0],f.cloud.tone);assert.equal(n.tableGain.connections[0],n.pan);}f.cloud.destroy();assert.ok(f.nodes.every(n=>n.disconnected===1));
+});
+
+test('tone table gestures and cursor agree: frames increase downwards at every display size',()=>{
+ for(const box of [{x:700,y:600,w:165,h:135},{x:650,y:240,w:120,h:64},{x:250,y:610,w:110,h:82}])for(const position of[0,.2,.5,.8,1])for(const warp of[0,.35,1]){const point=toneTableCursor(box,position,warp),result=toneTableCoordinates(box,point.x,point.y);assert.ok(Math.abs(result.tablePosition-position)<1e-12);assert.ok(Math.abs(result.tableWarp-warp)<1e-12);}
+ const box={x:0,y:0,w:120,h:80};assert.ok(toneTableCoordinates(box,60,55).tablePosition>toneTableCoordinates(box,60,30).tablePosition);
+});
+
+test('internal buffer root transposition changes playback rate without double-transposing table pitch',()=>{
+ const base={duration:.32,position:.4,pitch:7,pitchJitter:0,jitter:0,gain:.24,density:22},a=grainPlan(base,6),b=grainPlan({...base,bufferRootShift:12},6);assert.equal(a.pitch,b.pitch);assert.ok(Math.abs(b.rate/a.rate-2)<1e-12);
 });

@@ -121,3 +121,10 @@ html[data-copy=none] [data-copy],html[data-copy=none] .axis-label,html[data-copy
  .bottom-bar .play-button,.reference .bottom-bar .play-button{width:36px;height:36px}
 }
 @media(prefers-reduced-motion:reduce){.tempo-popup{transition:none;transform:none}}
+
+/* Use live viewport height on installed WebKit, keeping only the footer inset. */
+.instrument,.reference .instrument{height:var(--app-height,100dvh);padding-bottom:0}
+.bottom-bar,.reference .bottom-bar{height:calc(var(--footer-height) + max(var(--footer-corner-bottom,0px),env(safe-area-inset-bottom)));min-height:calc(var(--footer-height) + max(var(--footer-corner-bottom,0px),env(safe-area-inset-bottom)));padding:0 clamp(12px,2.2vw,22px) max(var(--footer-corner-bottom,0px),env(safe-area-inset-bottom))}
+@media(pointer:coarse){:root{--footer-corner-bottom:10px}}
+@media(max-width:640px) and (orientation:portrait){.instrument,.reference .instrument{height:auto;min-height:var(--app-height,100dvh)}.bottom-bar,.reference .bottom-bar{padding-inline:max(20px,env(safe-area-inset-left)) max(20px,env(safe-area-inset-right))}}
+@media(max-width:370px){.bottom-bar,.reference .bottom-bar{padding-inline:14px}.footer-transport{gap:2px}.footer-key{max-width:58px;padding-inline:2px}.footer-tool{width:31px;min-width:31px}.bottom-bar .tempo-control{padding-right:2px}.tempo-trigger{min-width:54px}}

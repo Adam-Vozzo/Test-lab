@@ -1,16 +1,13 @@
 const finite=(value,fallback)=>Number.isFinite(Number(value))?Number(value):fallback;
 const clamp=(value,min,max)=>Math.max(min,Math.min(max,value));
 
-export const SHARED_APPEARANCE_DEFAULTS=Object.freeze({layoutGap:16,leftWidth:50,rightWidth:50,sceneBloom:0,sceneBloomRadius:12,sceneBloomThreshold:.65,sceneBlur:0,sceneGrain:0,sceneGrainSize:1});
+export const SHARED_APPEARANCE_DEFAULTS=Object.freeze({layoutGap:16,leftWidth:50,rightWidth:50,sceneBlur:0,sceneGrain:0,sceneGrainSize:1});
 export const SHARED_APPEARANCE_CONTROLS=Object.freeze([
   {key:'layoutGap',label:'Minimum centre gap',min:0,max:120,step:1,unit:'px',section:'Layout',description:'Minimum space between the two playing surfaces. Their outside edges stay anchored.'},
   {key:'leftWidth',label:'Left surface width',min:20,max:80,step:1,unit:'%',section:'Layout',description:'Preferred share of the usable width, anchored left. Shares over 100% are fitted together; in portrait this sets the top surface height.'},
   {key:'rightWidth',label:'Right surface width',min:20,max:80,step:1,unit:'%',section:'Layout',description:'Preferred share of the usable width, anchored right. Smaller shares open more centre space; in portrait this sets the bottom surface height.'},
-  {key:'sceneBloom',label:'Scene bloom',min:0,max:1,step:.01,section:'Post-processing',description:'Bounded light spread from bright playing-surface pixels. Applied before blur and grain; footer and settings stay sharp.'},
-  {key:'sceneBloomRadius',label:'Bloom radius',min:1,max:28,step:1,unit:'px',section:'Post-processing',description:'Distance that bright surface details glow. Has an effect when Scene bloom is above zero.'},
-  {key:'sceneBloomThreshold',label:'Bloom threshold',min:.2,max:.95,step:.01,section:'Post-processing',description:'Brightness required to produce bloom. Higher values isolate highlights and preserve dark detail.'},
-  {key:'sceneBlur',label:'Scene blur',min:0,max:6,step:.1,unit:'px',section:'Post-processing',description:'Softens the playing surfaces after bloom. Footer controls and settings are excluded.'},
-  {key:'sceneGrain',label:'Film grain',min:0,max:.35,step:.005,section:'Post-processing',description:'Monochrome grain applied last, above the blurred image. Does not affect note input or audio.'},
+  {key:'sceneBlur',label:'Scene blur',min:0,max:6,step:.1,unit:'px',section:'Post-processing',description:'Softens the playing surfaces before grain. Footer controls and settings are excluded.'},
+  {key:'sceneGrain',label:'Film grain',min:0,max:.35,step:.005,section:'Post-processing',description:'Monochrome grain mixed with soft light after blur, preserving dark and bright tones. Does not affect sound.'},
   {key:'sceneGrainSize',label:'Grain scale',min:.5,max:2.5,step:.1,section:'Post-processing',description:'Size of the film-grain texture. Has an effect when Film grain is above zero.'},
 ]);
 

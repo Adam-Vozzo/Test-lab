@@ -41,7 +41,7 @@ function fixture({ suspended = false, strictStarts = false } = {}) {
     scheduleRepeat(callback, interval) { const id = Symbol(interval); events.set(id, { callback, interval }); return id; },
     clear(id) { events.delete(id); }, start() { this.state = 'started'; }, stop() { this.state = 'stopped'; },
   };
-  const rawContext = { get currentTime() { return now; }, state: 'running', addEventListener() {}, removeEventListener() {} };
+  const rawContext = { get currentTime() { return now; }, state: suspended?'suspended':'running', listeners:new Set(), addEventListener(type,fn){if(type==='statechange')this.listeners.add(fn);}, removeEventListener(type,fn){this.listeners.delete(fn);} };
   const context = { rawContext };
   const draws = [];
   globalThis.Tone = {
@@ -58,7 +58,7 @@ function fixture({ suspended = false, strictStarts = false } = {}) {
   };
   const seen = { steps: [], notes: [] };
   const engine = new AudioEngine(() => state, { onStep: i => seen.steps.push(i), onNote: (...args) => seen.notes.push(args) });
-  return { engine, state, seen, context, transport, events, draws, resume,
+  return { engine, state, seen, context, transport, events, draws, resume:()=>{rawContext.state='running';for(const fn of [...rawContext.listeners])fn();resume?.();},
     advance: (amount = .1) => { now += amount; },
     flush: () => { while (draws.length) draws.shift()(); },
     attacks: () => engine.voices.reduce((sum, v) => sum + v.synth.attackCalls.length, 0),
@@ -429,4 +429,44 @@ test('pausing a sequence keeps a physically held manual voice while ending seque
 test('pausing the sequence cancels an audio unlock still in progress', async () => {
   const f=fixture({suspended:true});const pending=f.engine.start();f.engine.stopSequence();f.resume();
   assert.equal(await pending,false);assert.equal(f.engine.running,false);assert.equal(f.engine.sequenceId,null);assert.equal(f.engine.transport.state,'stopped');f.engine.dispose();
+});
+
+test('Signal can unlock from a later eligible gesture without awaiting an earlier stalled promise',async()=>{
+ const f=fixture({suspended:true});let attempts=0;const Tone=globalThis.Tone;Tone.start=()=>{attempts++;if(attempts===1)return new Promise(()=>{});f.resume();return Promise.resolve();};
+ const first=f.engine.noteOn('first',62);const ending=f.engine.init({completeGesture:true});f.engine.noteOff('first');assert.equal(await ending,true);await first;assert.equal(f.attacks(),1);assert.equal(f.engine.live.size,0);assert.equal(f.engine.running,false);assert.ok(f.engine.voices.find(v=>v.visual).visual.gateEnd<Infinity);f.engine.dispose();
+});
+
+test('an already audible Signal arpeggio does not audition again when its touch ends',async()=>{
+  const f=fixture();f.state.sequence.arp=true;
+  try{
+    await f.engine.noteOn('pointer-21',62);
+    const attacks=f.attacks();assert.equal(attacks,1);
+    await f.engine.init({completeGesture:true});
+    f.engine.noteOff('pointer-21');
+    assert.equal(f.attacks(),attacks);
+    assert.equal(f.engine.live.size,0);
+    assert.equal(f.engine._completedTaps.size,0);
+  }finally{f.engine.dispose();}
+});
+
+test('slow Signal graph preparation does not consume the eligible ending gesture window',async()=>{
+  const f=fixture({suspended:true});let wall=1000;f.engine._wallNow=()=>wall;
+  const build=f.engine._build.bind(f.engine);f.engine._build=()=>{wall+=250;build();};
+  try{
+    const first=f.engine.noteOn('pointer-8',62);
+    assert.equal(f.engine.ready,true);assert.equal(f.context.rawContext.state,'suspended');
+    assert.equal(f.attacks(),0);assert.equal(f.engine.master.gain.value,0);
+    const ending=f.engine.init({completeGesture:true});f.engine.noteOff('pointer-8');
+    assert.equal(f.attacks(),0,'a suspended graph must not queue an expired audition');
+    f.resume();await Promise.all([first,ending]);
+    assert.equal(f.attacks(),1);assert.equal(f.engine._completedTaps.size,0);assert.equal(f.engine.running,false);
+  }finally{f.engine.dispose();}
+});
+
+test('Signal cancelled or expired first taps never sound after a later unlock',async()=>{
+ for(const action of ['cancel','expire','stop']){
+  const f=fixture({suspended:true});let wall=1000;f.engine._wallNow=()=>wall;const first=f.engine.noteOn('tap',62),ending=f.engine.init({completeGesture:true});f.engine.noteOff('tap');
+  if(action==='cancel')f.engine.noteOff('tap',{force:true});if(action==='stop')f.engine.stop();if(action==='expire')wall+=200;
+  f.resume();await Promise.all([first,ending]);assert.equal(f.attacks(),0,action);assert.equal(f.engine.live.size,0);assert.equal(f.engine._completedTaps.size,0);f.engine.dispose();
+ }
 });
