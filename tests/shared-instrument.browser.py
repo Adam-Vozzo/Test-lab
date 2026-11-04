@@ -22,7 +22,7 @@ import {createScenePostprocess} from '/scene-postprocess.js';import {enableRange
 const stage=document.querySelector('#stage');window.fx=createScenePostprocess(stage);window.scrub=enableRangeScrubbing();
 const canvas=document.createElement('canvas');canvas.style.cssText='width:100%;height:100%;';fx.scene.append(canvas);window.events=[];
 const slider=document.querySelector('#range');for(const type of ['input','change'])slider.addEventListener(type,()=>events.push({type,value:+slider.value}));
-window.draw=()=>{const r=stage.getBoundingClientRect();canvas.width=r.width;canvas.height=r.height;const c=canvas.getContext('2d');c.fillStyle='#05070a';c.fillRect(0,0,r.width,r.height);c.strokeStyle='#ffffe4';c.lineWidth=3;c.beginPath();c.moveTo(r.width*.5,20);c.lineTo(r.width*.5,r.height-20);c.stroke();c.fillStyle='#b8e8ff';c.fillRect(r.width*.7,70,30,30);c.fillStyle='#e5d27c';c.font='13px monospace';c.fillText('LUMINANCE / COMPOSITOR',24,40);};draw();fx.update({});window.ready=true;
+window.draw=()=>{const r=stage.getBoundingClientRect();canvas.width=r.width;canvas.height=r.height;const c=canvas.getContext('2d');c.fillStyle='#05070a';c.fillRect(0,0,r.width,r.height);for(const[x,color]of[[20,'#000000'],[160,'#808080'],[300,'#ffffff']]){c.fillStyle=color;c.fillRect(x,80,110,130);}c.strokeStyle='#ffffe4';c.lineWidth=3;c.beginPath();c.moveTo(r.width*.5,20);c.lineTo(r.width*.5,r.height-20);c.stroke();c.fillStyle='#b8e8ff';c.fillRect(r.width*.7,70,30,30);c.fillStyle='#e5d27c';c.font='13px monospace';c.fillText('LUMINANCE / COMPOSITOR',24,40);};draw();fx.update({});window.ready=true;
 addEventListener('resize',draw);
 </script>'''
 
@@ -64,24 +64,29 @@ async def run(base):
                 assert await page.locator('#stage').bounding_box()==geometry
                 return Image.open(io.BytesIO(data)).convert('RGB')
             default=await capture('default',{})
-            bloom=await capture('bloom',{'sceneBloom':1,'sceneBloomRadius':22,'sceneBloomThreshold':.5})
-            cx=geometry['x']+geometry['width']*.5;cy=geometry['y']+geometry['height']*.5
-            region=(int(cx+6),int(cy-30),int(cx+22),int(cy+30))
-            bloom_delta=sum(ImageStat.Stat(ImageChops.difference(default,bloom).crop(region)).mean)/3
-            assert bloom_delta>1, f'Bloom produced no measurable halo: {bloom_delta}'
-            blurred=await capture('bloom-blur',{'sceneBloom':1,'sceneBloomRadius':22,'sceneBloomThreshold':.5,'sceneBlur':3})
-            grain=await capture('bloom-blur-grain',{'sceneBloom':1,'sceneBloomRadius':22,'sceneBloomThreshold':.5,'sceneBlur':3,'sceneGrain':.3})
-            grain_region=(35,80,170,200);grain_delta=sum(ImageStat.Stat(ImageChops.difference(blurred,grain).crop(grain_region)).mean)/3
-            assert grain_delta>8,f'Grain is not visible after blur: {grain_delta}'
-            sequence=await page.evaluate("[...document.querySelector('filter').children].map(n=>n.tagName)")
-            assert sequence[-2:]==['feBlend','feGaussianBlur'];assert await page.evaluate("document.querySelector('.scene-film-grain').previousElementSibling.tagName.toLowerCase()")=='svg'
+            legacy=await capture('legacy-bloom-ignored',{'sceneBloom':1,'sceneBloomRadius':22,'sceneBloomThreshold':.5})
+            assert ImageChops.difference(default,legacy).getbbox() is None, 'Removed bloom settings still alter pixels'
+            blurred=await capture('blur',{'sceneBlur':3})
+            grain=await capture('blur-soft-light-grain',{'sceneBlur':3,'sceneGrain':.35})
+            mid=(180,100,240,180);black=(40,100,100,180);white=(320,100,380,180)
+            grain_delta=sum(ImageStat.Stat(ImageChops.difference(blurred,grain).crop(mid)).mean)/3
+            assert grain_delta>3,f'Grain is not visible in midtones: {grain_delta}'
+            for bounds in [black,white]:
+                change=sum(ImageStat.Stat(ImageChops.difference(blurred,grain).crop(bounds)).mean)/3
+                assert change<1,f'Grain washes out black/white: {change}'
+            before_mean=sum(ImageStat.Stat(blurred.crop(mid)).mean)/3;after_mean=sum(ImageStat.Stat(grain.crop(mid)).mean)/3
+            assert abs(before_mean-after_mean)<5, (before_mean,after_mean)
+            assert await page.evaluate("getComputedStyle(document.querySelector('.scene-film-grain')).mixBlendMode")=='soft-light'
+            assert await page.locator('filter').count()==0
+            footer=await page.locator('.bottom-bar').bounding_box();box=(int(footer['x']),int(footer['y'])+2,int(footer['x']+footer['width']),int(footer['y']+footer['height']))
+            assert ImageChops.difference(blurred,grain).crop(box).getbbox() is None
             await page.evaluate('fx.update({})');await page.wait_for_timeout(100);assert await page.evaluate("document.querySelector('.instrument-scene').style.filter")=='none'
             for width,height in [(1180,820),(844,390),(390,844)]:
                 await page.set_viewport_size({'width':width,'height':height});await page.wait_for_timeout(80)
                 layout=await page.evaluate("({bottom:document.querySelector('.bottom-bar').getBoundingClientRect().bottom,viewport:innerHeight,overflow:document.documentElement.scrollWidth>innerWidth})")
                 assert abs(layout['bottom']-layout['viewport'])<1 and not layout['overflow'],layout
             assert not errors,errors
-            report={'rangeTrackCapture':True,'secondaryTouchScrub':True,'keyboardPreserved':True,'cancelReleasesCapture':True,'bloomHaloDelta':bloom_delta,'grainAfterBlurDelta':grain_delta,'footerAtViewportBottom':True,'errors':errors}
+            report={'rangeTrackCapture':True,'secondaryTouchScrub':True,'keyboardPreserved':True,'cancelReleasesCapture':True,'legacyBloomIgnored':True,'grainBlend':'soft-light','grainAfterBlurDelta':grain_delta,'blackWhitePreserved':True,'footerAtViewportBottom':True,'errors':errors}
             (OUT/'report.json').write_text(json.dumps(report,indent=2));print(json.dumps(report,indent=2))
         finally: await browser.close()
 

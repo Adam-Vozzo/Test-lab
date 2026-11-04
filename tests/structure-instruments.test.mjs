@@ -36,7 +36,7 @@ test('Hand reuses no gesture voice IDs when a held touch identifier returns',()=
 });
 
 test('Hand printed rotary controls edit sound without admitting a playing touch',()=>{
-  const f=fixture(hand),before=f.state.sound.cutoff;f.canvas.emit('pointerdown',1,42,81);f.canvas.emit('pointermove',1,42,50);f.canvas.emit('pointerup',1,42,50);
+  const f=fixture(hand),before=f.state.sound.cutoff;f.canvas.emit('pointerdown',1,53,312);f.canvas.emit('pointermove',1,53,270);f.canvas.emit('pointerup',1,53,270);
   assert.ok(f.state.sound.cutoff>before);assert.equal(f.calls.filter(v=>v[0]==='on').length,0);f.controller.destroy();
 });
 
@@ -62,7 +62,7 @@ test('Etching ring contact stays the same voice while another contact orbits, wi
 test('score import validates every pitch and preserves finite camera state',()=>{
   for(const module of [hand,structure]){
     const f=fixture(module);f.controller.setData({pattern:[-20,Infinity,4.6,200,...Array(12).fill(3)],camera:{yaw:.6,pitch:Infinity,zoom:100}});
-    const data=f.controller.getData();assert.equal(data.pattern.length,16);assert.ok(data.pattern.every(v=>Number.isInteger(v)&&v>=0&&v<=7));assert.equal(data.pattern[0],0);assert.equal(data.pattern[2],5);assert.equal(data.pattern[3],7);
+    const data=f.controller.getData();assert.equal(data.pattern.length,16);const low=module===structure?-7:0,high=module===structure?21:7;assert.ok(data.pattern.every(v=>Number.isInteger(v)&&v>=low&&v<=high));assert.equal(data.pattern[0],low);assert.equal(data.pattern[2],5);assert.equal(data.pattern[3],high);
     if(data.camera){assert.equal(data.camera.yaw,.6);assert.ok(Number.isFinite(data.camera.pitch));assert.equal(data.camera.zoom,1.5);}
     f.controller.destroy();
   }
@@ -110,4 +110,11 @@ test('both sequencers preserve the audio scheduler timestamp and validated patte
   for(const module of [hand,structure]){
     const f=fixture(module);f.controller.setData({pattern:Array(16).fill(6)});f.controller.onStep(3,12.345);const pulse=f.calls.find(v=>v[0]==='pulse');assert.equal(pulse[2],62);assert.equal(pulse[4],12.345);assert.ok(pulse[5]>0);f.controller.destroy();
   }
+});
+
+test('Etching outer drafting ring adjusts detune without claiming a note or camera gesture',()=>{
+ const f=fixture(hand),before={...f.controller.getData().ringCamera},detune=f.state.sound.detune;f.canvas.emit('pointerdown',41,391,165);f.canvas.emit('pointermove',41,262,273);assert.ok(f.state.sound.detune>detune+10);assert.deepEqual(f.controller.getData().ringCamera,before);assert.equal(f.calls.filter(v=>v[0]==='on').length,0);f.canvas.emit('pointerup',41,262,273);f.controller.destroy();
+});
+test('Structural sequence can be edited above and below its original octave without changing other steps',()=>{
+ const f=fixture(structure);f.controller.setData({pattern:Array(16).fill(3)});const original=f.controller.getData().pattern;const step=1,t=(step+.5)/16,x=444*(.07+t*.86),y=600*(.16+t*.28+(3.5-3)*.0085);f.canvas.emit('pointerdown',42,x,y);f.canvas.emit('pointermove',42,x,y-230);let edited=f.controller.getData().pattern;assert.ok(edited[step]>7);assert.deepEqual(edited.filter((_,i)=>i!==step),original.filter((_,i)=>i!==step));f.canvas.emit('pointermove',42,x,y+220);edited=f.controller.getData().pattern;assert.ok(edited[step]<0);assert.equal(f.calls.filter(v=>v[0]==='update').at(-1)[2],50+edited[step]*2);f.controller.destroy();
 });

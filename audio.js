@@ -56,32 +56,57 @@ export class AudioEngine {
     this._emptyWaveform = new Float32Array(128);
     this._lfoSegments = [];
     this._lfoRate = .35;
+    this._activations = new Set(); this._primerSources = new Set();
+    this._completedTaps = new Map(); this._completionDeadline = -Infinity;
+    this._wallNow = () => performance.now();
   }
 
   _emit(name, ...args) {
     try { this.callbacks[name]?.(...args); } catch (error) { console.warn('DUO audio callback:', error); }
   }
 
-  async init() {
+  async init({completeGesture=false}={}) {
     if (this.disposed) throw new Error('Audio engine is closed.');
     const Tone = this.Tone || globalThis.Tone;
     if (!Tone) throw new Error('The sound engine has not loaded.');
     this.Tone = Tone;
+    if(completeGesture)this._completionDeadline=this._wallNow()+150;
     // Invoke resume in the original user gesture, before any other await.
     const resume = Tone.start();
-    if (!this._initPromise) {
-      this._initPromise = (async () => {
-        await resume;
-        if (this.disposed) return false;
-        this._build();
-        this.update();
-        return true;
-      })().catch(error => { this._initPromise = null; this._emit('onState', 'error', error.message); throw error; });
-    }
-    await resume;
-    const ready = await this._initPromise;
-    if (ready) this._emit('onState', 'running');
-    return ready;
+    const context=Tone.getContext().rawContext;this._primeOutput(context);
+    // Construct the silent graph during the initial gesture, even if native
+    // audio is suspended. Building it after touchend can consume the entire
+    // short-tap expiry window on a busy phone.
+    if(!this.ready)this._build();
+    // A pending ineligible pointerdown must not keep a later eligible touchend
+    // waiting on its old promise. Each gesture observes the shared native state.
+    const ready=await this._awaitRunning(resume,context);if(!ready||this.disposed)return false;
+    this.update();
+    this._drainCompletedTaps();this._emit('onState','running');return true;
+  }
+
+  _awaitRunning(resume,context){
+    return new Promise(resolve=>{
+      let done=false;const finish=ready=>{if(done)return;done=true;clearTimeout(timer);context.removeEventListener?.('statechange',check);this._activations.delete(finish);resolve(ready);};
+      const check=()=>{if(this.disposed||context.state==='closed')finish(false);else if(context.state==='running')finish(true);};
+      const timer=setTimeout(()=>finish(context.state==='running'),1800);this._activations.add(finish);context.addEventListener?.('statechange',check);
+      Promise.resolve(resume).then(check,error=>{this._emit('onState','error',error.message);finish(false);});check();
+    });
+  }
+
+  _primeOutput(context){
+    if(this._outputUnlocked||!context?.createBufferSource||!context.createBuffer)return;
+    try{
+      this._primerBuffer ||= context.createBuffer(1,1,context.sampleRate);
+      while(this._primerSources.size>=2){const old=this._primerSources.values().next().value;old.onended=null;try{old.stop();}catch{}old.disconnect();this._primerSources.delete(old);}
+      const source=context.createBufferSource();source.buffer=this._primerBuffer;source.connect(context.destination);this._primerSources.add(source);source.onended=()=>{source.disconnect();this._primerSources.delete(source);if(context.state==='running')this._outputUnlocked=true;};source.start(0);
+    }catch{}
+  }
+
+  _discardCompletedTap(id){const tap=this._completedTaps.get(id);if(tap){clearTimeout(tap.timer);this._completedTaps.delete(id);}}
+  _drainCompletedTaps(){
+    if(!this.ready||this.disposed||this._context?.state!=='running')return;
+    for(const [id,tap]of this._completedTaps){this._discardCompletedTap(id);if(this._wallNow()>tap.deadline||this.live.has(id))continue;this._soundNote(tap.entry.midi,tap.entry.velocity,this.Tone.now(),Math.min(.16,Math.max(.07,this._envelopeSettings().attack)),'live',null,{originId:id,originTime:tap.entry.originTime});}
   }
 
   _build() {
@@ -131,6 +156,7 @@ export class AudioEngine {
     this._contextListener = () => {
       const state = this._context.state;
       if (state !== 'running') {
+        this._outputUnlocked=false;
         this.stop();
         this._emit('onState', state === 'closed' ? 'closed' : 'suspended');
       } else this._emit('onState', 'running');
@@ -251,6 +277,8 @@ export class AudioEngine {
     this._draw(() => {
       if (voice.generation === generation) this._emit('onNote', Math.round(midi), strength, information);
     }, attackTime);
+    const entry = this.live.get(voice.visual.originId);
+    if (entry && entry.originTime === voice.visual.originTime) entry.audible = true;
     return voice;
   }
 
@@ -290,7 +318,7 @@ export class AudioEngine {
 
   async noteOn(id, midi, velocity = .7) {
     const entry = { midi: Math.round(clamp(midi, 12, 115, 50)), velocity: clamp(velocity, .04, 1, .7), voice: null, originTime: performance.now() / 1000 };
-    this.noteOff(id);
+    this.noteOff(id,{force:true});
     this.live.set(id, entry);
     try {
       if (!await this.init() || this.live.get(id) !== entry || this.disposed) return false;
@@ -307,7 +335,8 @@ export class AudioEngine {
     } catch (error) { this.live.delete(id); this._emit('onState', 'error', error.message); return false; }
   }
 
-  noteOff(id) {
+  noteOff(id,{force=false}={}) {
+    if(force)this._discardCompletedTap(id);
     const entry = this.live.get(id);
     if (!entry) return;
     const voice = entry.voice;
@@ -320,6 +349,10 @@ export class AudioEngine {
       voice.releaseAt = time + clamp(this.getState().sound?.release, .03, 8, 1.4);
     }
     this.live.delete(id);
+    if(!force&&!voice&&!entry.audible&&this._wallNow()<=this._completionDeadline){
+      this._discardCompletedTap(id);while(this._completedTaps.size>=8)this._discardCompletedTap(this._completedTaps.keys().next().value);
+      const tap={entry,deadline:this._completionDeadline,timer:null};tap.timer=setTimeout(()=>{if(this._completedTaps.get(id)===tap)this._completedTaps.delete(id);},150);this._completedTaps.set(id,tap);this._drainCompletedTaps();
+    }
   }
 
   _tickArp(time) {
@@ -434,6 +467,7 @@ export class AudioEngine {
   }
 
   allNotesOff() {
+    for(const id of this._completedTaps.keys())this._discardCompletedTap(id);this._completionDeadline=-Infinity;
     this.live.clear();
     this.epoch++;
     if (!this.ready) return;
@@ -569,6 +603,8 @@ export class AudioEngine {
     if (this.disposed) return;
     this.stop();
     this.disposed = true;
+    for(const finish of [...this._activations])finish(false);
+    for(const source of this._primerSources){source.onended=null;try{source.stop();}catch{}source.disconnect();}this._primerSources.clear();this._primerBuffer=null;
     if (this.arpId !== null) this.transport?.clear(this.arpId);
     this._context?.removeEventListener?.('statechange', this._contextListener);
     for (const node of this.nodes.reverse()) { try { node.dispose(); } catch { /* Already disposed. */ } }

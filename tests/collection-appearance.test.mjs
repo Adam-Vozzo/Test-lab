@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {FIRST_RELEASE_APPEARANCE,SECOND_RELEASE_APPEARANCE,APPEARANCE_REVISION,migrateAppearance,FIRST_RELEASE_SOUND,SECOND_RELEASE_SOUND,SOUND_REVISION,migrateSound,preserveStudySessions} from '../instruments/appearance-migration.js';
+import {FIRST_RELEASE_APPEARANCE,THIRD_RELEASE_APPEARANCE,THIRD_RELEASE_SOUND,SECOND_RELEASE_APPEARANCE,APPEARANCE_REVISION,migrateAppearance,FIRST_RELEASE_SOUND,SECOND_RELEASE_SOUND,SOUND_REVISION,migrateSound,preserveStudySessions} from '../instruments/appearance-migration.js';
 
 test('untouched first-release looks adopt the revised reference defaults across all instruments',()=>{
   for(const [id,old] of Object.entries(FIRST_RELEASE_APPEARANCE)){
@@ -50,4 +50,13 @@ test('replaced studies retain legacy sound, appearance, camera and looks without
  values.set('duo.instrument.terrain.v1','{"instrument":"terrain","bpm":99}');values.delete('duo.instrument.terrain.looks.v1');preserveStudySessions(storage);assert.equal(JSON.parse(values.get('duo.instrument.terrain.v1')).bpm,99);assert.deepEqual(JSON.parse(values.get('duo.instrument.terrain.looks.v1')),looks);values.set('duo.instrument.terrain.looks.v1','[]');preserveStudySessions(storage);assert.equal(values.get('duo.instrument.terrain.looks.v1'),'[]');
  values.clear();values.set('duo.instrument.geo.v1',JSON.stringify({...legacy,soundRevision:3}));preserveStudySessions(storage);assert.equal(values.has('duo.instrument.terrain.v1'),false);
  values.set('duo.instrument.geo.v1','invalid');assert.doesNotThrow(()=>preserveStudySessions(storage));assert.doesNotThrow(()=>preserveStudySessions({getItem(){throw new Error('denied')}}));
+});
+
+test('v20 defaults update for the phone revision while edits and other instruments stay intact',()=>{
+ for(const [id,appearance]of Object.entries(THIRD_RELEASE_APPEARANCE)){
+  const revised={sceneGrain:.1,newMaterial:.8};assert.deepEqual(migrateAppearance(id,{appearanceRevision:3,appearance},revised),revised);
+  const custom={...appearance,sceneGrain:.27};assert.deepEqual(migrateAppearance(id,{appearanceRevision:3,appearance:custom},revised),custom);
+ }
+ const old=THIRD_RELEASE_SOUND.carrier,revised={...old,index:.55};assert.deepEqual(migrateSound('carrier',{soundRevision:3,sound:old},revised),revised);
+ const custom={...old,cutoff:2340};assert.deepEqual(migrateSound('carrier',{soundRevision:3,sound:custom},revised),custom);
 });

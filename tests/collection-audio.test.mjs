@@ -28,6 +28,8 @@ function fixture({suspended=false,maxVoices=16,audioSession,resumeMode='normal',
     get currentTime() {return now;}
     createGain() {const node=new Node();this.nodes.push(node);return node;}
     createOscillator() {return this.createGain();}
+    createBuffer(channels,length,sampleRate){return{channels,length,sampleRate};}
+    createBufferSource(){return this.createGain();}
     createPeriodicWave(real,imag,options) {return {real,imag,options};}
     createBiquadFilter() {return this.createGain();}
     createWaveShaper() {return this.createGain();}
@@ -43,7 +45,7 @@ function fixture({suspended=false,maxVoices=16,audioSession,resumeMode='normal',
   }
   const errors=[];
   const context=useTone?new Context():null,Tone=useTone?{getContext:()=>({rawContext:context}),start(){toneStarts++;return context.resume();}}:undefined;
-  const audio=new CollectionAudio({AudioContext:useTone?undefined:Context,Tone,audioSession,maxVoices,setInterval(fn){timer=fn;return 1;},clearInterval(){clears++;},setTimeout(fn){const token={fn};waits.add(token);return token;},clearTimeout(token){waits.delete(token);},onError:e=>errors.push(e),onStateChange:state=>states.push(state)});
+  const audio=new CollectionAudio({AudioContext:useTone?undefined:Context,Tone,audioSession,maxVoices,wallNow:()=>now*1000,setInterval(fn){timer=fn;return 1;},clearInterval(){clears++;},setTimeout(fn){const token={fn};waits.add(token);return token;},clearTimeout(token){waits.delete(token);},onError:e=>errors.push(e),onStateChange:state=>states.push(state)});
   return {audio,errors,states,get now(){return now;},advance(seconds){now+=seconds;timer?.();},at(time){now=time;timer?.();},unblock(){unblock?.();},get clears(){return clears;},get resumeCalls(){return resumeCalls;},get toneStarts(){return toneStarts;},get pendingWaits(){return waits.size;},expire(){for(const token of [...waits])token.fn();},allowResume(){resumeMode='immediate';}};
 }
 
@@ -222,4 +224,24 @@ test('cancelled contacts bypass Hold and cancel future arp voices without releas
  f.audio.noteOn('cancelled',60);f.audio.noteOn('latched',64);f.audio.noteOff('latched');f.audio.noteOn('physical',67);f.advance(.2);
  f.audio.noteOff('cancelled',{force:true});assert.equal(f.audio.sources.has('cancelled'),false);assert.equal(f.audio.sources.get('latched').physical,false);assert.equal(f.audio.sources.get('physical').physical,true);
  const time=f.audio.now;f.advance(.6);assert.ok(f.audio._voices.filter(v=>v.id==='cancelled').every(v=>v.start<=time&&v.releaseAt!==null));assert.ok(f.audio.sources.has('latched'));assert.ok(f.audio.sources.has('physical'));await f.audio.dispose();
+});
+
+test('eligible ending gesture auditions an unheard completed tap without starting transport',async()=>{
+ const f=fixture({suspended:true,resumeMode:'gesture'}),first=f.audio.start();f.audio.noteOn('first-tap',60,{attack:.01,release:.15});
+ const ending=f.audio.start({completeGesture:true});f.audio.noteOff('first-tap');assert.equal(f.audio.sources.size,0);
+ assert.equal(await ending,true);assert.equal(await first,true);assert.equal(f.audio._voices.length,1);assert.equal(f.audio._voices[0].kind,'pulse');assert.equal(f.audio.transport.playing,false);assert.ok(f.audio._voices[0].releaseAt-f.audio.now<=.16);f.advance(.5);assert.equal(f.audio.snapshot().voices.length,0);await f.audio.dispose();
+});
+
+test('completed tap activation expires and cancellation, panic and source reuse cannot replay it',async()=>{
+ for(const action of ['cancel','panic','reuse','expire']){
+  const f=fixture({suspended:true});const first=f.audio.start();f.audio.noteOn('tap',60);const ending=f.audio.start({completeGesture:true});f.audio.noteOff('tap');assert.equal(f.audio._completedTaps.size,1);
+  if(action==='cancel')f.audio.noteOff('tap',{force:true});if(action==='panic')f.audio.panic();if(action==='reuse'){f.audio.noteOn('tap',67);f.audio.noteOff('tap',{force:true});}if(action==='expire')f.advance(.2);
+  f.unblock();await Promise.all([first,ending]);assert.equal(f.audio._completedTaps.size,0);assert.equal(f.audio._voices.length,0,action);await f.audio.dispose();
+ }
+});
+
+test('output priming occurs synchronously before gesture resume and remains bounded until unlock',async()=>{
+ const f=fixture({useTone:true,suspended:true,resumeMode:'stalled'}),first=f.audio.start();
+ assert.equal(f.toneStarts,1);assert.equal(f.audio._primerSources.size,1);assert.equal([...f.audio._primerSources][0].started,0);assert.equal([...f.audio._primerSources][0].buffer.length,1);
+ const second=f.audio.start(),third=f.audio.start();assert.equal(f.audio._primerSources.size,2);const disposed=f.audio.dispose();assert.equal(f.audio._primerSources.size,0);await disposed;assert.deepEqual(await Promise.all([first,second,third]),[false,false,false]);
 });

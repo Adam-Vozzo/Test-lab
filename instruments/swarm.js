@@ -7,7 +7,7 @@ export const definition={
   id:'swarm',name:'Machine / Swarm',batch:2,
   theme:{bg:'#08090d',fg:'#f0efe9',accent:'#e2c866',muted:'#a6a2b8'},
   defaultSound:{waveform:'sawtooth',attack:.018,decay:.22,sustain:.42,release:.9,cutoff:2400,resonance:2.8,detune:6,ratio:2,index:0,translate:0,spread:7},
-  defaultAppearance:{streakCount:5400,streakLength:1.8,curl:.85,inertia:.68,disturbance:.8,recovery:.5,emission:.72,wireOpacity:.82,fieldScale:.98,seed:19,bridgeScale:1.4,bridgeMotion:.7,windCoupling:.85},
+  defaultAppearance:{streakCount:5400,streakLength:1.8,curl:.85,inertia:.68,disturbance:.8,recovery:.5,emission:.72,wireOpacity:.82,fieldScale:1.08,edgeFade:.14,seed:19,bridgeScale:1.4,bridgeMotion:.7,windCoupling:.85},
   soundControls:[
     {key:'waveform',label:'Oscillator',kind:'select',options:[['sawtooth','Saw'],['square','Pulse'],['triangle','Triangle'],['sine','Sine']],section:'Source',description:'Waveform voiced by pitch lanes and swarm contacts.'},
     range('cutoff','Filter cutoff',80,12000,10,'Hz','Source','Brightness of every sounding lane and contact.'),
@@ -26,7 +26,8 @@ export const definition={
     range('inertia','Motion inertia',.05,.95,.01,'','Swarm','How long traces retain their current velocity.'),
     range('disturbance','Touch influence',0,1.6,.05,'','Gesture','Strength of the local disturbance around each finger.'),
     range('recovery','Field recovery',.1,1,.05,'','Gesture','Speed at which displaced traces return to the flow.'),
-    range('fieldScale','Field extent',.55,1,.01,'','Swarm','Width and height occupied by traces within their playing area.'),
+    range('fieldScale','Field extent',.55,1.25,.01,'','Swarm','Extent of the moving field before it fades at the panel perimeter.'),
+    range('edgeFade','Edge falloff',.04,.3,.01,'','Swarm','Fraction of the field width and height used for the soft transparent edge.'),
     range('emission','Violet glow',0,1,.05,'','Connections','Emission on voice nodes and the two transformation loops.'),
     range('wireOpacity','Circuit weight',.15,1,.05,'','Connections','Opacity of pitch lanes and connecting gold wires.'),
     range('bridgeScale','Sculpture scale',.8,1.8,.05,'×','Connections','Size of the two translucent circuit sculptures.'),
@@ -52,7 +53,7 @@ function bezierPoint(a,b,c,d,t){const q=1-t;return[q*q*q*a[0]+3*q*q*t*b[0]+3*q*t
 
 export function mount(host,api){
   const surface=createSurface(host,{label:'Pitch lanes and swarm. Drag a lane to edit its pitch. Drag the swarm to play and disturb the flow.',bg:'#08090d'});
-  const {canvas,ctx:c}=surface;let steps=[...original],enabled=Array(16).fill(true),layout=null,particles=[],serial=0,lastT=0;
+  const {canvas,ctx:c}=surface,flowCanvas=document.createElement('canvas'),flowContext=flowCanvas.getContext('2d');let steps=[...original],enabled=Array(16).fill(true),layout=null,particles=[],serial=0,lastT=0;
   const contacts=new Map(),roles=new Map(),releases=[],buckets=Array.from({length:7},()=>[]);
   const packets=[];
   let bridgeRenderer=null,bridgeScene=null,bridgeCamera=null,bridges=[],bridgeBox=null;
@@ -70,8 +71,8 @@ export function mount(host,api){
   const s=()=>({...definition.defaultSound,...api.state.sound});
   function bounds(){
     const w=surface.width,h=surface.height,margin=Math.max(16,w*.022),panels=splitLayout(w,h,api.state.appearance,{pad:margin,gap:24,stackPortrait:true}),small=!panels.wide,L=panels.left,R=panels.right;
-    if(small)return{w,h,margin,small,left:L,right:R,machine:{x:L.x,y:L.y+17,w:L.w,h:L.h-34},field:{x:R.x,y:R.y+16,w:R.w,h:Math.max(90,R.h-99)},bridgeY:h-54,bridgeX:w*.48};
-    return{w,h,margin,small,left:L,right:R,machine:{x:L.x,y:L.y+14,w:L.w-12,h:L.h*(h<480?.58:.65)},field:{x:R.x,y:R.y+14,w:R.w,h:R.h*.73},bridgeY:h*.84,bridgeX:(L.x+L.w+R.x)*.5};
+    if(small)return{w,h,margin,small,left:L,right:R,machine:{x:L.x,y:L.y+17,w:L.w,h:L.h-34},field:{x:R.x,y:R.y+16,w:R.w,h:Math.max(90,R.h-67)},bridgeY:h-54,bridgeX:w*.48};
+    return{w,h,margin,small,left:L,right:R,machine:{x:L.x,y:L.y+14,w:L.w-12,h:L.h*(h<480?.58:.65)},field:{x:R.x,y:R.y+14,w:R.w,h:R.h*.83},bridgeY:h*.84,bridgeX:(L.x+L.w+R.x)*.5};
   }
   function areas(){
     const b=layout||bounds(),m=b.machine;
@@ -131,7 +132,7 @@ export function mount(host,api){
   function drawFlow(t,dt,snap,v){
     const f=layout.field,z=s(),scale=v.fieldScale,count=Math.round(clamp(v.streakCount,600,7200));if(particles.length!==count)resetParticles(count);
     if(!layout.small){text(c,'X PITCH  ·  Y FILTER',f.x,f.y-12,'#e7e5ed',9);text(c,`${contacts.size} CONTACTS`,f.x+f.w,f.y-12,'#a79eb8',9,'right');}
-    c.save();c.beginPath();c.rect(f.x,f.y,f.w,f.h);c.clip();
+    const dpr=Math.min(surface.dpr,1.5),pixelW=Math.ceil(f.w*dpr),pixelH=Math.ceil(f.h*dpr);if(flowCanvas.width!==pixelW||flowCanvas.height!==pixelH){flowCanvas.width=pixelW;flowCanvas.height=pixelH;}flowContext.setTransform(dpr,0,0,dpr,-f.x*dpr,-f.y*dpr);flowContext.clearRect(f.x,f.y,f.w,f.h);
     for(const bucket of buckets)bucket.length=0;
     const sounding=new Map(snap.voices.map(voice=>[voice.id,voice])),held=api.state.hold?releases.filter(q=>!contacts.has(q.id)&&sounding.has(`swarm-${q.id}`)):[],screenScale=clamp(Math.sqrt(f.w*f.h/(550*520)),.43,1.12),active=[...contacts.values(),...held],energy=clamp(Math.sqrt(snap.rms||0)*2.6,0,1),timeStep=api.reducedMotion&&!active.length?0:Math.min(dt,.04),ambient=api.reducedMotion?0:t;
     const occupancy=new Uint16Array(64);for(const p of particles){const cell=clamp(Math.floor(p.x*8),0,7)+clamp(Math.floor(p.y*8),0,7)*8;occupancy[cell]++;}const average=count/64;
@@ -148,15 +149,17 @@ export function mount(host,api){
       const response=1-Math.exp(-timeStep*(3+(1-v.inertia)*30));p.vx=lerp(p.vx,tx,response);p.vy=lerp(p.vy,ty,response);p.x+=p.vx*timeStep;p.y+=p.vy*timeStep;
       p.life+=timeStep*(.14+energy*.12);const cell=clamp(Math.floor(p.x*8),0,7)+clamp(Math.floor(p.y*8),0,7)*8;if(p.x<-.025||p.x>1.025||p.y<-.025||p.y>1.025||p.life>1||(p.life>.55&&occupancy[cell]>average*2.1)){const seed=serial++*7+i;let destination=Math.floor(hash(seed+81)*64);for(let choice=1;choice<5;choice++){const candidate=Math.floor(hash(seed+choice*913)*64);if(occupancy[candidate]<occupancy[destination])destination=candidate;}p.x=((destination%8)+hash(seed+73))/8;p.y=(Math.floor(destination/8)+hash(seed+291))/8;occupancy[destination]++;p.life=0;p.vx*=.4;p.vy*=.4;}
       const x=f.x+f.w*(.5+(p.x-.5)*scale),y=f.y+f.h*(.5+(p.y-.5)*scale),vx=p.vx*f.w,vy=p.vy*f.h,magnitude=Math.max(1,Math.hypot(vx,vy)),ux=vx/magnitude,uy=vy/magnitude;
-      const local=.55+.45*Math.sin(p.x*12+p.y*8+ambient*.16)*Math.cos(p.y*11-p.x*5),length=(2.5+p.seed**1.3*13)*v.streakLength*screenScale*(.75+energy*.35+local*.3),bend=Math.sin(p.seed*23+ambient*.2)*length*.24,fade=clamp(Math.min(p.x,1-p.x,p.y,1-p.y)*80,0,1),bucket=fade<.2||p.life<.025?0:i%37===0?6:1+Math.min(4,Math.floor((p.seed*.65+local*.35)*5));
+      const local=.55+.45*Math.sin(p.x*12+p.y*8+ambient*.16)*Math.cos(p.y*11-p.x*5),length=(2.5+p.seed**1.3*13)*v.streakLength*screenScale*(.75+energy*.35+local*.3),bend=Math.sin(p.seed*23+ambient*.2)*length*.24,bucket=p.life<.035?0:i%37===0?6:1+Math.min(4,Math.floor((p.seed*.65+local*.35)*5));
       buckets[bucket].push(x-ux*length,y-uy*length,x-ux*length*.45-uy*bend,y-uy*length*.45+ux*bend,x,y);
     }
     const tones=['rgba(210,210,224,.22)','rgba(224,222,231,.43)','rgba(238,236,232,.66)','rgba(246,244,235,.81)','rgba(255,252,243,.93)','rgba(255,255,248,.99)','rgba(188,170,255,.86)'],weights=[.7,.75,1.05,1.4,1.75,2.1,1.1];
-    for(let i=0;i<buckets.length;i++){const bucket=buckets[i];c.strokeStyle=tones[i];c.lineWidth=weights[i]*Math.max(.66,screenScale);c.lineCap='round';c.beginPath();for(let j=0;j<bucket.length;j+=6){c.moveTo(bucket[j],bucket[j+1]);c.quadraticCurveTo(bucket[j+2],bucket[j+3],bucket[j+4],bucket[j+5]);}c.stroke();}
+    for(let i=0;i<buckets.length;i++){const bucket=buckets[i];flowContext.strokeStyle=tones[i];flowContext.lineWidth=weights[i]*Math.max(.66,screenScale);flowContext.lineCap='round';flowContext.beginPath();for(let j=0;j<bucket.length;j+=6){flowContext.moveTo(bucket[j],bucket[j+1]);flowContext.quadraticCurveTo(bucket[j+2],bucket[j+3],bucket[j+4],bucket[j+5]);}flowContext.stroke();}
+    flowContext.globalCompositeOperation='destination-in';const falloff=clamp(v.edgeFade,.04,.3);for(const vertical of [false,true]){const g=flowContext.createLinearGradient(f.x,f.y,f.x+(vertical?0:f.w),f.y+(vertical?f.h:0));for(const [position,alpha]of [[0,0],[falloff*.25,.12],[falloff*.6,.65],[falloff,1],[1-falloff,1],[1-falloff*.6,.65],[1-falloff*.25,.12],[1,0]])g.addColorStop(position,`rgba(255,255,255,${alpha})`);flowContext.fillStyle=g;flowContext.fillRect(f.x,f.y,f.w,f.h);}flowContext.globalCompositeOperation='source-over';c.drawImage(flowCanvas,f.x,f.y,f.w,f.h);
+    c.save();c.beginPath();c.rect(f.x,f.y,f.w,f.h);c.clip();
     for(const touch of active){touch.dx*=Math.exp(-dt*9);touch.dy*=Math.exp(-dt*9);const voice=snap.voices.find(q=>q.id===`swarm-${touch.id}`),level=voice?.level||.45;drawContact(touch.x,touch.y,level,t-touch.started);text(c,api.noteName(touch.midi),touch.x+18,touch.y-16,'#eee9ff',10);}
     for(let i=releases.length-1;i>=0;i--){const q=releases[i],age=t-q.released,voice=snap.voices.find(x=>x.id===`swarm-${q.id}`),level=voice?.level||Math.max(0,1-age/s().release)*.3;if(age>5&&!voice){releases.splice(i,1);continue;}if(level>0)drawContact(q.x,q.y,level,age);}
     c.restore();
-    const lowest=active.at(-1);if(layout.h>=480||layout.small)text(c,`${lowest?api.noteName(lowest.midi):'—'}  ·  ${Math.round(s().cutoff)} Hz  ·  ${api.state.hold?'HELD':'DIRECT'}`,f.x,f.y+f.h+16,'#c4bfcc',8.5);
+    const lowest=active.at(-1);if(layout.h>=480||layout.small)text(c,`${lowest?api.noteName(lowest.midi):'—'}  ·  ${Math.round(s().cutoff)} Hz  ·  ${api.state.hold?'HELD':'DIRECT'}`,f.x+8,f.y+f.h-8,'#c4bfcc',8.5);
     function drawContact(x,y,level,age){c.strokeStyle=css('#c1b1ff',.5+level*.5);c.lineWidth=1;c.beginPath();c.arc(x,y,9+level*12+Math.sin(age*4)*1.5,0,TAU);c.stroke();c.beginPath();c.moveTo(x-6,y);c.lineTo(x+6,y);c.moveTo(x,y-6);c.lineTo(x,y+6);c.stroke();}
   }
   function initBridge(){

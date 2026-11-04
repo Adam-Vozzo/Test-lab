@@ -8,7 +8,7 @@ export const midiFrequency = midi => 440 * Math.pow(2, (number(midi, 60, 0, 127)
 /** A small native audio host. Musical source identity is independent of the
  * short-lived oscillator voices used for envelopes, sequencing and arpeggios. */
 export class CollectionAudio {
-  constructor({AudioContext, Tone, audioSession, maxVoices=16, setInterval:interval, clearInterval:clear, setTimeout:timeout, clearTimeout:clearTimeoutFn, resumeTimeoutMs=1800, onError, onStateChange} = {}) {
+  constructor({AudioContext, Tone, audioSession, maxVoices=16, setInterval:interval, clearInterval:clear, setTimeout:timeout, clearTimeout:clearTimeoutFn, wallNow, resumeTimeoutMs=1800, onError, onStateChange} = {}) {
     // Production uses the same standardized Web Audio platform as Signal. An
     // injected/native context remains available for tests and library fallback.
     this._Tone = AudioContext ? null : Tone || globalThis.Tone;
@@ -18,6 +18,7 @@ export class CollectionAudio {
     this._setTimeout = timeout || globalThis.setTimeout.bind(globalThis);
     this._clearTimeout = clearTimeoutFn || globalThis.clearTimeout.bind(globalThis);
     this._resumeTimeoutMs = number(resumeTimeoutMs,1800,50,10000);
+    this._wallNow = wallNow || (() => globalThis.performance?.now() ?? Date.now());
     this._audioSession = audioSession === undefined ? globalThis.navigator?.audioSession : audioSession;
     this._previousSessionType = null; this._ownsSessionType = false;
     this._onError = onError || (error => console.error(error));
@@ -36,6 +37,8 @@ export class CollectionAudio {
     this._waveform = new Float32Array(512); this._frequency = new Float32Array(256);
     this._spectrumBytes = new Uint8Array(256); this._rms = 0;
     this._periodicWaves = new Map();
+    this._completionDeadline = -Infinity; this._completedTaps = new Map();
+    this._primerSources = new Set(); this._primerBuffer = null; this._outputUnlocked = false;
   }
 
   get context() { return this._context; }
@@ -43,12 +46,16 @@ export class CollectionAudio {
   get output() { return this._output; }
   get now() { return this._context?.currentTime || 0; }
 
-  async start() {
+  async start({completeGesture=false}={}) {
     if (this._disposed || (!this._Context && !this._Tone?.getContext)) return false;
+    // Safari can first grant audio on touchend. Only that explicit completing
+    // gesture may audition a tap released before its first audible attack.
+    if(completeGesture)this._completionDeadline=this._wallNow()+150;
     try {
       this._prepareAudioSession();
       if (!this._context) this._createContext();
       this._wake();
+      this._primeOutput();
       // Touch pointerdown may precede Safari's eligible activation event. A
       // pending attempt must never prevent touchend/click from trying again.
       // Signal calls Tone.start() for every gesture; preserve that behavior here.
@@ -56,11 +63,35 @@ export class CollectionAudio {
       if (!await this._waitForRunning(resumed) || this._disposed || this._context.state!=='running') return false;
       this.lastError = null; this._wasRunning = true;
       for (const pending of [...this._pendingStarts]) pending.check();
-      this._reconcile(); this._tick();
+      this._drainCompletedTaps(); this._reconcile(); this._tick();
       return true;
     } catch (error) {
       this.lastError = error;
       return false;
+    }
+  }
+
+  _primeOutput(){
+    // Start a silent, one-sample source synchronously in the native gesture.
+    // Older/current WebKit I/O paths may require this in addition to resume().
+    // A suspended attempt never prevents the ending touch from priming again.
+    const context=this._context;if(this._outputUnlocked||!context?.createBufferSource||!context.createBuffer)return;
+    try{
+      this._primerBuffer ||= context.createBuffer(1,1,context.sampleRate);
+      while(this._primerSources.size>=2){const oldest=this._primerSources.values().next().value;oldest.onended=null;try{oldest.stop();}catch{}oldest.disconnect();this._primerSources.delete(oldest);}
+      const source=context.createBufferSource();source.buffer=this._primerBuffer;source.connect(context.destination);this._primerSources.add(source);
+      source.onended=()=>{source.disconnect();this._primerSources.delete(source);if(context.state==='running')this._outputUnlocked=true;};source.start(0);
+    }catch{/* Unsupported priming must not block ordinary resume. */}
+  }
+
+  _discardCompletedTap(id){const tap=this._completedTaps.get(id);if(tap){this._clearTimeout(tap.timer);this._completedTaps.delete(id);}}
+  _drainCompletedTaps(){
+    if(this._context?.state!=='running'||this._disposed)return;
+    for(const [id,tap]of this._completedTaps){
+      this._discardCompletedTap(id);
+      if(this._wallNow()>tap.deadline||this.sources.has(id))continue;
+      const voice=this._newVoice(tap.source,this.now,'pulse');
+      if(voice)this._releaseVoice(voice,this.now+Math.min(.16,Math.max(.07,voice.options.attack)));
     }
   }
 
@@ -98,7 +129,7 @@ export class CollectionAudio {
       context.addEventListener?.('statechange',pending.check);
       timer = this._setTimeout(() => {
         if (context.state==='running') finish(true);
-        else finish(false,new Error('Audio activation did not complete. Tap Play to retry.'));
+        else finish(false,new Error('Audio activation did not complete. Touch the instrument again to retry.'));
       },this._resumeTimeoutMs);
       Promise.resolve(resume).then(pending.check,error=>finish(false,error));
       pending.check();
@@ -131,6 +162,7 @@ export class CollectionAudio {
     this._applyEffects();
     this._contextListener = () => {
       if (context.state==='running') { this._wasRunning=true; return; }
+      this._outputUnlocked=false;
       if (this._wasRunning && !this._disposed) {
         this._wasRunning=false; this.panic(); this._onStateChange(context.state);
       }
@@ -189,6 +221,7 @@ export class CollectionAudio {
   noteOn(id, midi, options={}) {
     if (this._disposed) return null;
     id = String(id); midi = number(midi, 60, 0, 127);
+    this._discardCompletedTap(id);
     this._removeSourceVoices(id, this.now, .025);
     if (!this.sources.has(id) && this.sources.size >= this.maxVoices) {
       // Touch IDs are often never reused. Bound the latched pool as well as the
@@ -214,11 +247,16 @@ export class CollectionAudio {
   }
 
   noteOff(id,{force=false}={}) {
-    id = String(id); const source = this.sources.get(id); if (!source) return;
+    id = String(id);if(force)this._discardCompletedTap(id);const source = this.sources.get(id); if (!source) return;
     source.physical = false;
     if (this.performance.hold&&!force) return;
+    const unheard=!this._voices.some(voice=>voice.generation===source.generation&&voice.start<=this.now&&!voice.disposed);
     this.sources.delete(id); this._removeSourceVoices(id, this.now);
     if (!this.sources.size) this._nextArp = null;
+    if(!force&&unheard&&this._wallNow()<=this._completionDeadline){
+      this._discardCompletedTap(id);while(this._completedTaps.size>=this.maxVoices)this._discardCompletedTap(this._completedTaps.keys().next().value);
+      const tap={source,deadline:this._completionDeadline,timer:null};tap.timer=this._setTimeout(()=>{if(this._completedTaps.get(id)===tap)this._completedTaps.delete(id);},150);this._completedTaps.set(id,tap);this._drainCompletedTaps();
+    }
   }
 
   setPerformance(options={}) {
@@ -459,6 +497,7 @@ export class CollectionAudio {
   }
 
   panic() {
+    for(const id of this._completedTaps.keys())this._discardCompletedTap(id);this._completionDeadline=-Infinity;
     this.sources.clear(); this.transport.playing = false;
     this._nextArp = null; this._nextSequence = null; this._stepEvents = [];
     for (const voice of [...this._voices]) this._destroyVoice(voice);
@@ -474,6 +513,7 @@ export class CollectionAudio {
     if (this._timer!==null) this._clearInterval(this._timer); this._timer=null;
     for (const node of [this._output,this._eqLow,this._eqMid,this._eqHigh,this._compressor,this._master,this._analyser,this._delay,this._feedback,this._wet]) try { node?.disconnect(); } catch {}
     this._periodicWaves.clear();
+    for(const source of this._primerSources){source.onended=null;try{source.stop();}catch{}source.disconnect();}this._primerSources.clear();this._primerBuffer=null;
     return this._context?.close().catch(() => {});
   }
 }

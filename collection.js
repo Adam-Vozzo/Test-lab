@@ -9,8 +9,10 @@ import {setupPWA} from './pwa.js';
 import {withSharedAppearance} from './instrument-layout.js';
 import {createScenePostprocess} from './scene-postprocess.js';
 import {enableRangeScrubbing} from './range-scrub.js';
+import {installViewportFit} from './viewport-fit.js';
 
 const $=id=>document.getElementById(id),stage=$('stage');
+const releaseViewport=installViewportFit();
 const SCALES={dorian:[0,2,3,5,7,9,10],minor:[0,2,3,5,7,8,10],major:[0,2,4,5,7,9,11],pentatonic:[0,3,5,7,10],chromatic:Array.from({length:12},(_,i)=>i)};
 const BASE_SOUND={waveform:'triangle',attack:.025,decay:.25,sustain:.65,release:.7,cutoff:6500,resonance:1,detune:0,ratio:1,index:0,gain:.24,pan:0,glide:.025};
 const COMMON_SOUND=[
@@ -30,7 +32,7 @@ let controls={sound:[],appearance:[]},groups={sound:'',appearance:''},looks=[],u
 const pointers=new Set(),keys=new Set(),audio=new CollectionAudio({onStateChange:()=>{
   const active=state.playing||state.hold||pointers.size>0||keys.size>0;
   panic();
-  if(active&&!document.hidden)toast('Audio interrupted. Tap Play to resume.');
+  if(active&&!document.hidden)toast('Audio interrupted. Touch the instrument to resume.');
 }});
 const safeRead=key=>{try{return JSON.parse(localStorage.getItem(key)||'null');}catch{return null;}};
 const storageKey=()=>`duo.instrument.${currentId}.v1`;
@@ -56,12 +58,12 @@ function save(){clearTimeout(saveTimer);saveTimer=setTimeout(saveNow,180);}
 function toast(text){$('toast').textContent=text;$('toast').classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').classList.remove('visible'),2600);}
 function quantize(degree,octave=0){const scale=SCALES[state.scale]||SCALES.dorian,d=Math.round(degree),n=((d%scale.length)+scale.length)%scale.length;return clamp(state.root+scale[n]+12*(Math.floor(d/scale.length)+octave),21,108);}
 function setStatus(text){if($('instrument-status').textContent!==text)$('instrument-status').textContent=text;}
-function unlockFromGesture(reportFailure=false){
+function unlockFromGesture(reportFailure=false,completeGesture=false){
   const token=loadToken;
   // Keep the resume call in the native input dispatch. Safari may accept the
   // ending touch even when its preceding pointerdown could not unlock audio.
-  const request=audio.start();
-  Promise.resolve(request).then(ready=>{if(ready===false&&reportFailure&&token===loadToken)toast('Audio could not start. Tap Play to retry.');}).catch(()=>{if(reportFailure&&token===loadToken)toast('Audio could not start. Tap Play to retry.');});
+  const request=audio.start({completeGesture});
+  Promise.resolve(request).then(ready=>{if(ready===false&&reportFailure&&token===loadToken)toast('Audio could not start. Touch the instrument to retry.');}).catch(()=>{if(reportFailure&&token===loadToken)toast('Audio could not start. Touch the instrument to retry.');});
 }
 function setSound(patch){const resolved=sanitize({...state.sound},controls.sound,{...state.sound,...patch});Object.assign(state.sound,resolved);audio.configure(Object.fromEntries(Object.keys(patch).filter(key=>Object.hasOwn(resolved,key)).map(key=>[key,resolved[key]])));syncControls('sound');save();}
 function performanceState(){audio.setPerformance({hold:state.hold,arp:state.arp,bpm:state.bpm,arpRate:state.arpRate});}
@@ -73,13 +75,13 @@ function syncTransport(){
   window.dispatchEvent(new Event('duo:transport'));
 }
 function transport(){if(controller!==transportController||state.playing!==transportPlaying){transportController=controller;transportPlaying=state.playing;controller?.setPlaying?.(state.playing);}audio.setTransport({playing:state.playing,bpm:state.bpm,onStep:(step,when)=>controller?.onStep?.(step,when)});}
-async function togglePlay(){if(!controller)return;const token=++playRequest;if(state.playing){state.playing=false;transport();syncTransport();return;}state.playing=true;syncTransport();const ready=await audio.start();if(token!==playRequest)return;if(ready===false){state.playing=false;syncTransport();toast('Audio could not start. Tap Play to retry.');return;}transport();syncTransport();}
+async function togglePlay(){if(!controller)return;const token=++playRequest;if(state.playing){state.playing=false;transport();syncTransport();return;}state.playing=true;syncTransport();const ready=await audio.start();if(token!==playRequest)return;if(ready===false){state.playing=false;syncTransport();toast('Audio could not start. Touch the instrument to retry.');return;}transport();syncTransport();}
 function panic(){++playRequest;controller?.cancel?.();state.playing=false;state.hold=false;keys.clear();pointers.clear();audio.panic();performanceState();transport();syncTransport();}
 function closeDisclosure(id,focus=false){$(id).hidden=true;const trigger=id==='collection-menu'?$('collection-toggle'):$('performance-toggle');trigger.setAttribute('aria-expanded','false');if(focus)trigger.focus({preventScroll:true});}
 
 function applyTheme(){const theme=definition.theme;for(const key of ['bg','fg','accent','muted'])document.documentElement.style.setProperty('--'+key,theme[key]);const n=parseInt(theme.bg.replace('#',''),16),l=((n>>16)*.2126+(n>>8&255)*.7152+(n&255)*.0722);document.documentElement.style.colorScheme=l>150?'light':'dark';document.querySelector('meta[name=theme-color]').content=theme.bg;}
 function refreshLibrary(){
-  let batch=-1;$('collection-list').innerHTML=INSTRUMENTS.map((item,i)=>{let group='';if(item.batch!==batch){batch=item.batch;group=`<div class="collection-group">${batch===0?'SIGNAL':batch===4?'STUDIES':`BATCH ${String(batch).padStart(2,'0')}`}</div>`;}const href=item.href||`#${item.id}`;return group+`<a class="collection-entry" href="${href}" data-instrument="${item.id}" aria-current="${item.id===currentId}" style="--a:${item.colors[0]};--b:${item.colors[1]}"><i class="swatch" aria-hidden="true"></i><span><b>${escape(item.name)}</b><small>${escape(item.description)}</small></span><em>${String(i+1).padStart(2,'0')}</em></a>`;}).join('');
+  $('collection-list').innerHTML=INSTRUMENTS.map((item,i)=>{const href=item.href||`#${item.id}`;return `<a class="collection-entry" href="${href}" data-instrument="${item.id}" aria-current="${item.id===currentId}" style="--a:${item.colors[0]};--b:${item.colors[1]}"><i class="swatch" aria-hidden="true"></i><span><b>${escape(item.name)}</b><small>${escape(item.description)}</small></span><em>${String(i+1).padStart(2,'0')}</em></a>`;}).join('');
 }
 
 function buildTabs(kind){
@@ -163,9 +165,11 @@ document.addEventListener('keydown',e=>{
   else items[next]?.focus();
 });
 document.addEventListener('pointerdown',e=>{document.documentElement.dataset.inputModality='pointer';if(!e.target.closest('#collection-menu,#collection-toggle'))closeDisclosure('collection-menu');if(!e.target.closest('#performance-popover,#performance-toggle'))closeDisclosure('performance-popover');if(stage.contains(e.target)){pointers.add(e.pointerId);unlockFromGesture();}},{capture:true});
-document.addEventListener('pointerup',e=>{if(pointers.has(e.pointerId)&&e.pointerType!=='mouse')unlockFromGesture(true);pointers.delete(e.pointerId);},{capture:true});
+document.addEventListener('pointerup',e=>{if(pointers.has(e.pointerId)&&e.pointerType!=='mouse')unlockFromGesture(true,true);pointers.delete(e.pointerId);},{capture:true});
 document.addEventListener('pointercancel',e=>pointers.delete(e.pointerId),{capture:true});
-stage.addEventListener('touchend',()=>unlockFromGesture(true),{capture:true,passive:true});
+stage.addEventListener('touchstart',()=>unlockFromGesture(),{capture:true,passive:true});
+stage.addEventListener('touchend',()=>unlockFromGesture(true,true),{capture:true,passive:true});
+stage.addEventListener('click',()=>unlockFromGesture(),{capture:true});
 document.addEventListener('input',e=>{const input=e.target,key=input.dataset.key,kind=input.dataset.kind;if(!key||!kind)return;const c=controls[kind].find(c=>c.key===key);if(!c)return;if(kind==='appearance'&&!changeBefore)changeBefore={...state.appearance};const value=c.kind==='toggle'?input.checked:c.kind==='select'||c.kind==='color'?input.value:Number(input.value);state[kind][key]=value;if(kind==='sound')audio.configure({[key]:value});controller?.update?.(key,kind);if(kind==='appearance')visualEffects?.update(state.appearance);syncControls(kind);if(kind==='appearance')$('appearance-preset').value='custom';save();});
 document.addEventListener('change',e=>{if(e.target.dataset.kind==='appearance')rememberAppearance();});
 $('appearance-preset').addEventListener('change',e=>{if(e.target.value==='reference')applyAppearance(definition.defaultAppearance);else if(e.target.value!=='custom')applyAppearance(looks[Number(e.target.value)]?.appearance||definition.defaultAppearance);});
@@ -183,7 +187,7 @@ document.addEventListener('keyup',e=>{const key=e.key.toLowerCase();if(keys.dele
 window.addEventListener('hashchange',()=>loadInstrument(location.hash.slice(1)));window.addEventListener('resize',()=>controller?.resize?.());
 document.addEventListener('visibilitychange',()=>{if(document.hidden){panic();saveNow();}});window.addEventListener('blur',()=>panic());
 window.addEventListener('pagehide',()=>{saveNow();panic();});
-window.addEventListener('beforeunload',()=>{cancelAnimationFrame(raf);controller?.destroy?.();audio.dispose();pwa.destroy();tempo.destroy();secondary();rangeScrubbing();visualEffects?.destroy();});
+window.addEventListener('beforeunload',()=>{cancelAnimationFrame(raf);controller?.destroy?.();audio.dispose();pwa.destroy();tempo.destroy();secondary();rangeScrubbing();releaseViewport();visualEffects?.destroy();});
 function frame(ms){raf=requestAnimationFrame(frame);const t=ms/1000,dt=clamp(t-(lastTime||t),0,.05);lastTime=t;if(document.hidden)return;try{controller?.frame?.(t,dt);}catch(error){console.error(error);controller?.destroy?.();controller=null;panic();toast('Instrument renderer stopped. Switch instruments to reload.');}if(t-lastSync>.15){lastSync=t;if(!$('sound-popover').hidden)syncControls('sound');if(!$('appearance').hidden)syncControls('appearance');}}
 try{preserveStudySessions(localStorage);}catch{}
 refreshLibrary();let initial=location.hash.slice(1);if(!initial)try{initial=localStorage.getItem('duo.collection.current')||'carrier';}catch{initial='carrier';}loadInstrument(initial);raf=requestAnimationFrame(frame);

@@ -7,17 +7,18 @@ const range=(key,label,min,max,step,unit,section,description)=>({key,label,min,m
 export const definition={
   id:'granular',name:'Past / Future',batch:3,commonSoundControls:false,
   theme:{bg:'#090a0c',fg:'#eceeea',accent:'#e7df73',muted:'#8f999f'},
-  defaultSound:{grainSize:.18,density:18,pitch:0,pitchJitter:3,position:.4,scan:.06,jitter:.12,stereo:.7,grainGain:.23,windowBeats:4,tablePosition:.35,tableWarp:.2,tableMix:.28,orbitRate:.09,orbitDepth:.25},
+  defaultSound:{grainSize:.32,density:22,pitch:0,pitchJitter:.08,position:.4,scan:.025,jitter:.035,stereo:.38,grainGain:.24,toneCutoff:3800,windowBeats:4,tablePosition:.14,tableWarp:.06,tableMix:.12,orbitRate:.09,orbitDepth:.25},
   defaultAppearance:{cloudSize:1.05,cloudDepth:1,pointSize:1.25,pointDensity:1,asciiSize:9,historyRows:18,traceWeight:1,grainGlow:.6,guideOpacity:.45},
   soundControls:[
     range('grainSize','Grain duration',.025,.65,.005,'s','Grains','Length of each windowed audio fragment.'),
     range('density','Grains per second',2,50,1,'Hz','Grains','Rate of genuinely scheduled buffer fragments.'),
     range('pitch','Pitch offset',-24,24,1,'st','Grains','Playback-rate transposition of each audio fragment.'),
-    range('pitchJitter','Pitch scatter',0,12,.25,'st','Grains','Seeded pitch variation between scheduled grains.'),
+    range('pitchJitter','Pitch scatter',0,12,.01,'st','Grains','Pitch variation between grains. Values below 0.2 semitones create a restrained chorus.'),
     range('position','Read position',0,1,.001,'','Buffer','Starting position within the source buffer.'),
     range('scan','Scan speed',-.3,.3,.005,'/s','Buffer','Signed speed through the recorded buffer.'),
     range('jitter','Position scatter',0,.45,.005,'','Buffer','Spread of grain start positions around the read head.'),
     range('stereo','Stereo spread',0,1,.01,'','Output','Left/right distribution of individual fragments.'),
+    range('toneCutoff','Tone cutoff',600,12000,25,'Hz','Output','Low-pass filtering of both source grains and the wavetable layer.'),
     range('grainGain','Output level',.04,.4,.01,'','Output','Level before overlap compensation and the output limiter.'),
     range('windowBeats','Source cycle length',.25,4,.25,'beats','Buffer','Time each of the three source windows feeds the grain scheduler.'),
     range('tablePosition','Table position',0,1,.005,'','Wavetable','Interpolates the actual periodic wavetable mixed with every grain.'),
@@ -55,25 +56,24 @@ export function grainWindow(amplitude=1,length=128){const data=new Float32Array(
 
 /** A deterministic source lets the instrument play immediately without capture. */
 export function createSeedBuffer(context,seconds=6){
-  const length=Math.floor(context.sampleRate*seconds),buffer=context.createBuffer(2,length,context.sampleRate);
-  for(let channel=0;channel<2;channel++){
-    const data=buffer.getChannelData(channel);let smooth=0;
-    for(let i=0;i<length;i++){
-      const t=i/context.sampleRate,cycle=t%1.5,env=Math.pow(Math.sin(Math.PI*cycle/1.5),2),base=146.8323839587;
-      smooth=smooth*.97+(hash(i+channel*9187)*2-1)*.03;
-      const harmonics=Math.sin(TAU*base*t+channel*.11)*.42+Math.sin(TAU*base*1.5*t)*.19+Math.sin(TAU*base*2.007*t+Math.sin(t*.6))*.12+Math.sin(TAU*base*3*t)*.045;
-      data[i]=(harmonics*(.25+.75*env)+smooth*.35)*.64;
-    }
-  }
+  const length=Math.floor(context.sampleRate*seconds),buffer=context.createBuffer(2,length,context.sampleRate),size=2048,warm=new Float32Array(size+1),bright=new Float32Array(size+1);
+  // One harmonic family throughout the source: scan changes colour, not an
+  // unrelated chord. Lookup tables keep first-touch preparation inexpensive.
+  for(let i=0;i<=size;i++){const phase=i/size*TAU;for(let h=1;h<=8;h++){const amp=h===1?.68:.2/(h*h);warm[i]+=Math.sin(phase*h)*amp;bright[i]+=Math.sin(phase*h)*amp*(h===1?1:2.5);}}
+  for(let channel=0;channel<2;channel++){const data=buffer.getChannelData(channel);for(let i=0;i<length;i++){const t=i/context.sampleRate,phase=fract(t*146.8323839587+channel*.009)*size,index=Math.floor(phase),fraction=phase-index,colour=.5+.5*Math.sin(t*.58+channel*.13),envelope=.82+.12*Math.sin(t*.73);const a=lerp(warm[index],warm[index+1],fraction),b=lerp(bright[index],bright[index+1],fraction);data[i]=lerp(a,b,colour)*envelope*.68;}}
   return buffer;
 }
 
-export function grainPlan({duration,position,pitch,jitter,pitchJitter,stereo,panBias=0,gain,density},bufferDuration,index=0){
-  const length=safe(duration,.025,.65,.18),semitones=safe(pitch,-48,48,0)+(hash(index+91)*2-1)*safe(pitchJitter,0,12,0),rate=2**(semitones/12);
+export function grainPlan({duration,position,pitch,jitter,pitchJitter,stereo,panBias=0,gain,density,bufferRootShift=0},bufferDuration,index=0){
+  const length=safe(duration,.025,.65,.18),semitones=safe(pitch,-48,48,0)+(hash(index+91)*2-1)*safe(pitchJitter,0,12,0),rate=2**((semitones+safe(bufferRootShift,-24,24,0))/12);
   const bufferLength=Math.min(length*rate,Math.max(.001,bufferDuration-.001)),actualDuration=bufferLength/rate;
   const location=fract(finite(position,.4)+(hash(index+3)*2-1)*safe(jitter,0,.45,.1));
   return{duration:actualDuration,bufferLength,offset:location*Math.max(0,bufferDuration-bufferLength),position:location,pitch:semitones,rate,pan:clamp((hash(index+17)*2-1)*safe(stereo,0,1,.7)+safe(panBias,-1,1,0),-1,1),amplitude:safe(gain,.01,.5,.2)/Math.sqrt(Math.max(1,safe(density,1,50,18)*actualDuration*.8))};
 }
+
+// The gesture and drawn cursor use the same downward frame axis.
+export function toneTableCoordinates(box,x,y){const height=Math.max(14,box.h-42);return{tableWarp:clamp((x-box.x-5)/Math.max(1,box.w-10)),tablePosition:clamp(((y-box.y-20)/height-.15)/.7)};}
+export function toneTableCursor(box,position,warp){return{x:box.x+5+clamp(warp)*(box.w-10),y:box.y+20+Math.max(14,box.h-42)*(.15+clamp(position)*.7)};}
 
 export function retainGrainClock(next,now){return Number.isFinite(next)&&next>=now?next:now+.008;}
 
@@ -83,12 +83,13 @@ export function grainArpDegree(time,bpm=112,division=8){return[0,2,4,6][Math.flo
 
 /** Bounded, look-ahead scheduled grains. No timing depends on the render loop. */
 export class GrainCloud{
-  constructor(audio){this.audio=audio;this.buffer=null;this.pool=new Set();this.events=[];this.serial=0;this.destroyed=false;this.seed=11;this.tables=new Map();}
+  constructor(audio){this.audio=audio;this.buffer=null;this.pool=new Set();this.events=[];this.serial=0;this.destroyed=false;this.seed=11;this.tables=new Map();this.tone=null;}
   setBuffer(buffer){this.stop();this.buffer=buffer;this.events=[];}
   schedule(when,options){
     const context=this.audio.context,output=this.audio.output;if(this.destroyed||!context||!output||!this.buffer||this.pool.size>=48)return null;
     const p=grainPlan(options,this.buffer.duration,this.serial+this.seed),source=context.createBufferSource(),gain=context.createGain(),pan=context.createStereoPanner(),mix=safe(options.tableMix,0,1,0);
-    when=Math.max(context.currentTime,finite(when,context.currentTime));source.buffer=this.buffer;source.playbackRate.setValueAtTime(p.rate,when);gain.gain.setValueCurveAtTime(grainWindow(p.amplitude*(1-mix)),when,p.duration);pan.pan.setValueAtTime(p.pan,when);source.connect(gain);gain.connect(pan);pan.connect(output);
+    when=Math.max(context.currentTime,finite(when,context.currentTime));if(options.coherent){const cycle=1/146.8323839587,phase=fract(when*146.8323839587*2**((finite(options.pitch,0)+finite(options.bufferRootShift,0))/12))*cycle;p.offset=clamp(Math.round((p.offset-phase)/cycle)*cycle+phase,0,Math.max(0,this.buffer.duration-p.bufferLength));p.position=p.offset/Math.max(.001,this.buffer.duration-p.bufferLength);}
+    if(!this.tone){this.tone=context.createBiquadFilter();this.tone.type='lowpass';this.tone.Q.value=.62;this.tone.connect(output);}this.tone.frequency.setTargetAtTime(safe(options.toneCutoff,600,12000,3800),context.currentTime,.04);source.buffer=this.buffer;source.playbackRate.setValueAtTime(p.rate,when);gain.gain.setValueCurveAtTime(grainWindow(p.amplitude*(1-mix)),when,p.duration);pan.pan.setValueAtTime(p.pan,when);source.connect(gain);gain.connect(pan);pan.connect(this.tone);
     let oscillator=null,tableGain=null;if(mix>.001){const coefficients=wavetableCoefficients(options.tablePosition,options.tableWarp);let table=this.tables.get(coefficients.key);if(!table){table=context.createPeriodicWave(coefficients.real,coefficients.imag,{disableNormalization:true});this.tables.set(coefficients.key,table);if(this.tables.size>64)this.tables.delete(this.tables.keys().next().value);}oscillator=context.createOscillator();tableGain=context.createGain();oscillator.setPeriodicWave(table);oscillator.frequency.setValueAtTime(440*2**((finite(options.root,50)+p.pitch-69)/12),when);tableGain.gain.setValueCurveAtTime(grainWindow(p.amplitude*mix*.8),when,p.duration);oscillator.connect(tableGain);tableGain.connect(pan);oscillator.start(when);oscillator.stop(when+p.duration+.01);}
     const record={id:++this.serial,when,until:when+p.duration,position:p.position,offset:p.offset,bufferLength:p.bufferLength,pitch:p.pitch,pan:p.pan,duration:p.duration,level:p.amplitude,window:Math.round(safe(options.window,0,2,0)),tableMix:mix,tablePosition:finite(options.tablePosition,.35),tableWarp:finite(options.tableWarp,.2),contactId:options.contactId==null?null:String(options.contactId),root:finite(options.root,50)};
     const node={source,gain,pan,oscillator,tableGain,record};this.pool.add(node);source.onended=()=>{this.pool.delete(node);source.disconnect();gain.disconnect();pan.disconnect();if(oscillator){try{oscillator.stop();}catch{}oscillator.disconnect();tableGain.disconnect();}};source.start(when,p.offset,p.bufferLength);source.stop(when+p.duration+.01);
@@ -97,14 +98,14 @@ export class GrainCloud{
   _stopNode(node){node.source.onended=null;try{node.source.stop();}catch{}node.source.disconnect();node.gain.disconnect();node.pan.disconnect();if(node.oscillator){try{node.oscillator.stop();}catch{}node.oscillator.disconnect();node.tableGain.disconnect();}this.pool.delete(node);}
   cancelContact(id){const key=String(id),now=this.audio.context?.currentTime??Infinity;for(const node of this.pool)if(node.record.contactId===key)this._stopNode(node);this.events=this.events.filter(e=>e.contactId!==key||e.when<=now);for(const e of this.events)if(e.contactId===key)e.until=Math.min(e.until,now);}
   stop(){for(const node of this.pool)this._stopNode(node);const now=this.audio.context?.currentTime??Infinity;this.events=this.events.filter(e=>e.when<=now);for(const e of this.events)e.until=Math.min(e.until,now);}
-  destroy(){this.destroyed=true;this.stop();this.events=[];this.buffer=null;this.tables.clear();}
+  destroy(){this.destroyed=true;this.stop();this.events=[];this.buffer=null;this.tables.clear();this.tone?.disconnect();this.tone=null;}
 }
 
 export function mount(host,api){
   const surface=createSurface(host,{label:'Buffer history and future grains. Drag the left timeline to scrub the source; drag the cloud to control grain position and pitch.',bg:'#090a0c'}),{canvas,ctx:c}=surface;
-  const cloud=new GrainCloud(api.audio),contacts=new Map(),roles=new Map();let layout,lastT=0,readHead=.4,nextTime=0,lastScheduler=0,sourceName='HARMONIC BUFFER',bufferReady=false,latch=null,destroyed=false,generation=0,wasActive=false,sourcePeaks=null,cycleEpoch=0,scheduledDensity=18,windowOffsets=[-.25,0,.25],orbitOffset=0,satellite=null,satelliteScreen=null;
+  const cloud=new GrainCloud(api.audio),contacts=new Map(),roles=new Map();let layout,lastT=0,readHead=.4,nextTime=0,lastScheduler=0,sourceName='HARMONIC BUFFER',bufferReady=false,latch=null,destroyed=false,generation=0,wasActive=false,sourcePeaks=null,cycleEpoch=0,scheduledDensity=18,windowOffsets=[-.25,0,.25],orbitOffset=0,satellite=null,satelliteScreen=null,pendingTap=null,gestureVelocity={x:0,y:0},cloudTurn={x:0,y:0},cloudImpulse=0;
   const grainVisuals=new WeakMap(),waveTiles=new Map(),previewWaves=[];
-  let webgl=null,scene=null,camera=null,cloudGroup=null,points=null,pointGeometry=null,pointMaterial=null,pointBase=null,pointAmount=0,axisMaterial=null,wireMaterial=null,bandCanvas=null,bandContext=null,bandTexture=null,bandMaterial=null,lastBand=-1,cloudViewport='';
+  let webgl=null,scene=null,camera=null,cloudGroup=null,interactionShell=null,points=null,pointGeometry=null,pointMaterial=null,pointBase=null,pointAmount=0,axisMaterial=null,wireMaterial=null,bandCanvas=null,bandContext=null,bandTexture=null,bandMaterial=null,lastBand=-1,cloudViewport='';
   const buttons=document.createElement('div');buttons.className='granular-actions';buttons.style.cssText='position:absolute;left:24px;bottom:20px;display:flex;align-items:center;gap:8px;z-index:3;font:10px monospace;';
   const importButton=document.createElement('button');importButton.type='button';importButton.textContent='IMPORT AUDIO';importButton.setAttribute('aria-label','Import a local audio buffer');importButton.style.cssText='font:inherit;letter-spacing:.04em;padding:8px 11px;border:1px solid #5b5a47;color:#ddd9a0;background:#11120f;min-height:34px;';
   const sourceButton=document.createElement('button');sourceButton.type='button';sourceButton.textContent='RESET BUFFER';sourceButton.setAttribute('aria-label','Restore the internal harmonic buffer');sourceButton.style.cssText=importButton.style.cssText;
@@ -125,26 +126,27 @@ export function mount(host,api){
   function ensureBuffer(){if(!bufferReady&&api.audio.context){if(retainedSource)setBuffer(retainedSource.buffer,retainedSource.name);else setBuffer(createSeedBuffer(api.audio.context),'HARMONIC BUFFER');}}
   function inBox(p,b){return p.x>=b.x&&p.x<=b.x+b.w&&p.y>=b.y&&p.y<=b.y+b.h;}
   function windowBoxes(){const b=layout.right,top=b.y+b.h*.26,gap=b.h*.22;return Array.from({length:3},(_,i)=>({x:b.x,y:top+i*gap,w:b.w,h:gap*.79}));}
-  const unbind=bindPointers(canvas,{down(p){surface.resize();layout=bounds();const lane=windowBoxes().findIndex(b=>inBox(p,b)),role=inBox(p,layout.window)?'table':satelliteScreen&&Math.hypot(p.x-satelliteScreen.x,p.y-satelliteScreen.y)<22?'satellite':inBox(p,layout.timeline)?'timeline':lane>=0?`future${lane}`:inBox(p,layout.left)?'history':inBox(p,layout.cloud)?'cloud':null;if(!role)return false;roles.set(p.id,role);setContact(p,role);api.audio.start().then(ok=>{if(ok&&!destroyed&&(contacts.has(p.id)||api.state.hold)){ensureBuffer();schedule();}});},move(p){const role=roles.get(p.id);if(role)setContact(p,role);},up:release,cancel:cancelContact});
-  function setContact(p,role){const window=role.startsWith('future')?Number(role.at(-1)):null,box=role==='table'?layout.window:role==='timeline'?layout.timeline:role==='history'?layout.left:window!==null?windowBoxes()[window]:layout.cloud,nx=clamp((p.x-box.x)/box.w,0,1),ny=clamp((p.y-box.y)/box.h,0,1),q={id:p.id,x:p.x,y:p.y,role,position:readHead,pitch:0,window};
-    if(role==='table'){const warp=clamp((p.x-box.x-5)/Math.max(1,box.w-10),0,1),position=1-clamp((p.y-box.y-20)/Math.max(14,box.h-42),0,1);api.setSound?.({tablePosition:position,tableWarp:warp});api.setStatus(`TABLE ${position.toFixed(2)} · WARP ${warp.toFixed(2)}`);}
+  const unbind=bindPointers(canvas,{down(p){surface.resize();layout=bounds();const lane=windowBoxes().findIndex(b=>inBox(p,b)),role=inBox(p,layout.window)?'table':satelliteScreen&&Math.hypot(p.x-satelliteScreen.x,p.y-satelliteScreen.y)<22?'satellite':inBox(p,layout.timeline)?'timeline':lane>=0?`future${lane}`:inBox(p,layout.left)?'history':inBox(p,layout.cloud)?'cloud':null;if(!role)return false;roles.set(p.id,role);setContact(p,role);api.audio.start().then(ok=>{if(ok&&!destroyed&&(contacts.has(p.id)||api.state.hold||pendingTap?.q.id===p.id)){ensureBuffer();schedule();}});},move(p){const role=roles.get(p.id);if(role)setContact(p,role);},up:release,cancel:cancelContact});
+  function cloudHit(p){if(!webgl||!cloudGroup)return null;cloudGroup.updateMatrixWorld(true);camera.updateMatrixWorld(true);const box=layout.cloud,raycaster=new THREE.Raycaster();raycaster.setFromCamera(new THREE.Vector2((p.x-box.x)/box.w*2-1,1-(p.y-box.y)/box.h*2),camera);const ray=raycaster.ray.clone().applyMatrix4(new THREE.Matrix4().copy(cloudGroup.matrixWorld).invert());return ray.intersectSphere(new THREE.Sphere(new THREE.Vector3(),1.04),new THREE.Vector3());}
+  function setContact(p,role){const window=role.startsWith('future')?Number(role.at(-1)):null,box=role==='table'?layout.window:role==='timeline'?layout.timeline:role==='history'?layout.left:window!==null?windowBoxes()[window]:layout.cloud,nx=clamp((p.x-box.x)/box.w,0,1),ny=clamp((p.y-box.y)/box.h,0,1),q={id:p.id,x:p.x,y:p.y,role,position:readHead,pitch:0,window};const previousContact=contacts.get(p.id);if(role==='cloud'){q.nx=nx;q.ny=ny;q.hit=previousContact&&Math.hypot(p.x-previousContact.x,p.y-previousContact.y)<.5?previousContact.hit:cloudHit(p);const dx=previousContact?(p.x-previousContact.x)/Math.max(1,box.w):0,dy=previousContact?(p.y-previousContact.y)/Math.max(1,box.h):0;gestureVelocity.x=lerp(gestureVelocity.x,dx*36,.6);gestureVelocity.y=lerp(gestureVelocity.y,dy*36,.6);cloudImpulse=Math.min(1,cloudImpulse+.18+Math.hypot(dx,dy)*6);}
+    if(role==='table'){const {tableWarp:warp,tablePosition:position}=toneTableCoordinates(box,p.x,p.y);api.setSound?.({tablePosition:position,tableWarp:warp});api.setStatus(`TABLE ${position.toFixed(2)} · WARP ${warp.toFixed(2)}`);}
     else if(role==='satellite'){const angle=Math.atan2(p.y-(box.y+box.h*.5),p.x-(box.x+box.w*.5)),distance=Math.hypot(nx-.5,ny-.5),previous=contacts.get(p.id),now=api.audio.context?.currentTime||0;q.angle=previous?previous.angle+Math.atan2(Math.sin(angle-previous.pointerAngle),Math.cos(angle-previous.pointerAngle)):panPhase(now);q.pointerAngle=angle;q.startDistance=previous?.startDistance??distance;q.startDepth=previous?.startDepth??sound().orbitDepth;orbitOffset=q.angle-now*sound().orbitRate*TAU;const depth=clamp(q.startDepth+(distance-q.startDistance)*1.6,0,.85);api.setSound?.({orbitDepth:depth});api.setStatus(`PAN ORBIT ${depth.toFixed(2)}`);}
-    else{q.position=role==='history'?1-ny:nx;q.pitch=role==='timeline'?0:Math.round((.5-ny)*24);if(window!==null)windowOffsets[window]=q.position-readHead;else{readHead=q.position;api.setSound?.({position:readHead});}api.setStatus(`${(q.position*(cloud.buffer?.duration||6)).toFixed(2)} s · ${q.pitch>0?'+':''}${q.pitch} st`);}
-    contacts.set(p.id,q);latch=q;const fingers=[...contacts.values()].filter(v=>v.role==='cloud');if(fingers.length>=2){const distance=Math.hypot(fingers[0].x-fingers[1].x,fingers[0].y-fingers[1].y)/Math.max(1,layout.cloud.w);api.setSound?.({pitchJitter:clamp(distance*20,0,12),stereo:clamp(distance*1.8,0,1)});}
+    else{q.position=role==='history'?1-ny:nx;q.pitch=role==='timeline'?0:api.quantize(Math.round((.5-ny)*14))-api.state.root;if(window!==null)windowOffsets[window]=q.position-readHead;else{readHead=q.position;api.setSound?.({position:readHead});}api.setStatus(`${(q.position*(cloud.buffer?.duration||6)).toFixed(2)} s · ${q.pitch>0?'+':''}${q.pitch} st`);}
+    contacts.set(p.id,q);latch=q;const fingers=[...contacts.values()].filter(v=>v.role==='cloud');if(fingers.length>=2){const distance=Math.hypot(fingers[0].x-fingers[1].x,fingers[0].y-fingers[1].y)/Math.max(1,layout.cloud.w);api.setSound?.({grainSize:clamp(.12+distance*.65,.08,.65),stereo:clamp(.15+distance*1.1,0,1),toneCutoff:Math.round(1400+distance*8500)});api.setStatus(`${Math.round((.12+distance*.65)*1000)} ms · WIDTH ${Math.round(clamp(.15+distance*1.1,0,1)*100)}%`);}
   }
-  function release(p){const q=contacts.get(p.id);if(q?.role==='satellite')orbitOffset=q.angle-(api.audio.context?.currentTime||0)*sound().orbitRate*TAU;contacts.delete(p.id);roles.delete(p.id);if(!api.state.hold&&!contacts.size)latch=null;api.save();}
-  function cancelContact(p){const q=contacts.get(p.id);if(q?.role==='satellite')orbitOffset=q.angle-(api.audio.context?.currentTime||0)*sound().orbitRate*TAU;contacts.delete(p.id);roles.delete(p.id);if(latch?.id===p.id)latch=[...contacts.values()].at(-1)||null;cloud.cancelContact(p.id);if(!contacts.size&&!api.state.playing&&!(api.state.hold&&latch)){cloud.stop();nextTime=0;wasActive=false;}api.save();}
+  function release(p){const q=contacts.get(p.id);if(q?.role==='satellite')orbitOffset=q.angle-(api.audio.context?.currentTime||0)*sound().orbitRate*TAU;if(q&&!api.state.hold){const now=api.audio.context?.currentTime||0;pendingTap={q:{...q},expires:performance.now()+150,until:api.audio.context?.state==='running'?now+.10:null};}contacts.delete(p.id);roles.delete(p.id);if(!api.state.hold&&!contacts.size)latch=null;schedule();api.save();}
+  function cancelContact(p){if(pendingTap?.q.id===p.id)pendingTap=null;const q=contacts.get(p.id);if(q?.role==='satellite')orbitOffset=q.angle-(api.audio.context?.currentTime||0)*sound().orbitRate*TAU;contacts.delete(p.id);roles.delete(p.id);if(latch?.id===p.id)latch=[...contacts.values()].at(-1)||null;cloud.cancelContact(p.id);if(!contacts.size&&!api.state.playing&&!(api.state.hold&&latch)){cloud.stop();nextTime=0;wasActive=false;}api.save();}
   function panPhase(time){return [...contacts.values()].find(q=>q.role==='satellite')?.angle??time*sound().orbitRate*TAU+orbitOffset;}
   function schedule(){
-    if(destroyed)return;const ctx=api.audio.context;if(!ctx||ctx.state!=='running')return;ensureBuffer();const now=ctx.currentTime,z=sound(),active=api.state.playing||contacts.size>0||(api.state.hold&&latch);
+    if(destroyed)return;if(pendingTap?.until===null&&performance.now()>pendingTap.expires)pendingTap=null;const ctx=api.audio.context;if(!ctx||ctx.state!=='running')return;ensureBuffer();const now=ctx.currentTime;if(pendingTap?.until===null)pendingTap.until=now+.10;if(pendingTap&&pendingTap.until<=now)pendingTap=null;const z=sound(),active=api.state.playing||contacts.size>0||(api.state.hold&&latch)||pendingTap;
     if(!api.state.hold&&!contacts.size)latch=null;
     if(!active){wasActive=false;lastScheduler=now;return;}if(!wasActive)cycleEpoch=now+.008;wasActive=true;
     const elapsed=clamp(now-lastScheduler,0,.1);lastScheduler=now;if(!contacts.size&&!api.state.hold)readHead=fract(readHead+z.scan*elapsed);
     if(z.density!==scheduledDensity){const last=cloud.events.at(-1);nextTime=Math.max(now+.008,last?last.when+1/z.density:now+.008);scheduledDensity=z.density;}nextTime=retainGrainClock(nextTime,now);
     let safety=0;while(nextTime<now+.11&&safety++<12){
-      const list=[...contacts.values()].filter(q=>!['table','satellite'].includes(q.role)),contact=list.length?list[cloud.serial%list.length]:latch,window=contact?.window??grainWindowIndex(nextTime,cycleEpoch,api.state.bpm,z.windowBeats),position=contact?.window!==null&&contact?.window!==undefined?contact.position:fract((contact&&!['table','satellite'].includes(contact.role)?contact.position:readHead)+windowOffsets[window]);
+      const list=[...contacts.values()].filter(q=>!['table','satellite'].includes(q.role)),contact=list.length?list[cloud.serial%list.length]:(api.state.hold?latch:pendingTap?.q),window=contact?.window??grainWindowIndex(nextTime,cycleEpoch,api.state.bpm,z.windowBeats),position=contact?.window!==null&&contact?.window!==undefined?contact.position:fract((contact&&!['table','satellite'].includes(contact.role)?contact.position:readHead)+windowOffsets[window]);
       let pitch=z.pitch+(contact?.pitch||0);if(api.state.arp)pitch+=api.quantize(grainArpDegree(nextTime,api.state.bpm,api.state.arpRate))-api.state.root;
-      cloud.schedule(nextTime,{duration:z.grainSize,position,pitch,jitter:z.jitter,pitchJitter:z.pitchJitter,stereo:z.stereo,panBias:Math.sin(panPhase(nextTime))*z.orbitDepth,gain:z.grainGain,density:z.density,window,contactId:contact?.id??null,tableMix:z.tableMix,tablePosition:z.tablePosition,tableWarp:z.tableWarp,root:api.state.root});nextTime+=1/z.density;
+      cloud.schedule(nextTime,{duration:z.grainSize,position,pitch,jitter:z.jitter,pitchJitter:z.pitchJitter,stereo:z.stereo,panBias:Math.sin(panPhase(nextTime))*z.orbitDepth,gain:z.grainGain,density:z.density,window,contactId:contact?.id??null,tableMix:z.tableMix,tablePosition:z.tablePosition,tableWarp:z.tableWarp,root:api.state.root,toneCutoff:z.toneCutoff,coherent:sourceName==='HARMONIC BUFFER',bufferRootShift:sourceName==='HARMONIC BUFFER'?api.state.root-50:0});nextTime+=1/z.density;
     }
   }
   const timer=setInterval(schedule,25);
@@ -155,7 +157,7 @@ export function mount(host,api){
       scene=new THREE.Scene();camera=new THREE.PerspectiveCamera(38,1,.1,30);camera.position.set(0,.18,4.8);camera.lookAt(0,0,0);cloudGroup=new THREE.Group();scene.add(cloudGroup);
       pointMaterial=new THREE.PointsMaterial({color:'#eaf1f0',size:1.25,transparent:true,opacity:.82,depthWrite:false,sizeAttenuation:false});
       axisMaterial=new THREE.LineBasicMaterial({color:'#5f9ebc',transparent:true,opacity:.38});wireMaterial=new THREE.LineBasicMaterial({color:'#e5efed',transparent:true,opacity:.17,depthWrite:false});
-      const shell=new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.SphereGeometry(.997,44,28)),wireMaterial);cloudGroup.add(shell);
+      const shell=new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.SphereGeometry(.997,44,28)),wireMaterial);cloudGroup.add(shell);interactionShell=new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.IcosahedronGeometry(1.045,2)),new THREE.LineBasicMaterial({color:'#d4e879',transparent:true,opacity:0,depthWrite:false}));cloudGroup.add(interactionShell);
       const core=new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.TorusGeometry(.49,.23,16,48)),new THREE.LineBasicMaterial({color:'#f5f5e9',transparent:true,opacity:.27,depthWrite:false}));core.rotation.x=.8;core.rotation.y=.5;cloudGroup.add(core);
       for(const [from,to]of [[[-1.4,0,0],[1.4,0,0]],[[0,-1.4,0],[0,1.4,0]],[[0,0,-1.4],[0,0,1.4]]]){const g=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...from),new THREE.Vector3(...to)]);cloudGroup.add(new THREE.Line(g,axisMaterial));}
       for(let k=0;k<2;k++){const pts=[];for(let i=0;i<=130;i++){const a=i/130*TAU;pts.push(new THREE.Vector3(Math.cos(a)*1.31,Math.sin(a)*.13,Math.sin(a)*1.08));}const line=new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),axisMaterial);line.rotation.z=k?.47:-.37;line.rotation.x=k?.38:-.15;cloudGroup.add(line);}
@@ -186,14 +188,15 @@ export function mount(host,api){
     const b=layout.cloud,now=snap.time,active=cloud.events.filter(e=>e.when<=now&&e.until>now),ambient=api.reducedMotion?0:t;if(webgl){
       if(!pointBase||pointAmount!==v.pointDensity)makeCloud(v.pointDensity);const data=pointGeometry.attributes.position.array;
       for(let i=0;i<pointBase.length;i+=3){const x=pointBase[i],y=pointBase[i+1],z=pointBase[i+2],latitude=(y+1)*.5;let bump=0;for(const e of active){const d=latitude-e.position,env=Math.sin(Math.PI*(now-e.when)/e.duration);bump+=Math.exp(-d*d*75)*env*(.018+Math.abs(e.pitch)*.002);}
-        const r=1+Math.min(.14,bump)+Math.sin(y*5+ambient*.24)*.01;data[i]=x*r;data[i+1]=y*r;data[i+2]=z*r;
+        let attractionX=0,attractionY=0,attractionZ=0;for(const q of contacts.values())if(q.role==='cloud'){const gx=q.hit?.x??(q.nx-.5)*2,gy=q.hit?.y??(.5-q.ny)*2,gz=q.hit?.z??.7,d=(x-gx)**2+(y-gy)**2+(z-gz)**2,influence=Math.exp(-d*5);bump+=influence*.23;attractionX+=(gx-x)*influence*.34;attractionY+=(gy-y)*influence*.34;attractionZ+=(gz-z)*influence*.34;}const r=1+Math.min(.32,bump)+Math.sin(y*5+ambient*.24)*.01;data[i]=x*r+attractionX;data[i+1]=y*r+attractionY;data[i+2]=z*r+attractionZ;
       }
-      pointGeometry.attributes.position.needsUpdate=true;pointMaterial.size=v.pointSize;pointMaterial.opacity=.76+clamp(Math.sqrt(snap.rms||0)*.5,0,.24);axisMaterial.opacity=v.guideOpacity*.85;wireMaterial.opacity=.035+v.guideOpacity*.11;cloudGroup.scale.set(v.cloudSize,v.cloudSize,v.cloudSize*v.cloudDepth);cloudGroup.rotation.set(.18,ambient*.035,-.13);updateBand(t,active);const z=sound(),phase=panPhase(now);satellite.position.set(Math.sin(phase)*1.32*v.cloudSize,Math.cos(phase)*.33*v.cloudSize,Math.cos(phase)*1.05*v.cloudSize);satellite.scale.setScalar(.85+z.orbitDepth*.7);
+      pointGeometry.attributes.position.needsUpdate=true;pointMaterial.size=v.pointSize;pointMaterial.opacity=.68+cloudImpulse*.14+clamp(Math.sqrt(snap.rms||0)*.5,0,.24);axisMaterial.opacity=v.guideOpacity*.85;wireMaterial.opacity=.035+v.guideOpacity*.11;cloudGroup.scale.set(v.cloudSize,v.cloudSize,v.cloudSize*v.cloudDepth);cloudGroup.rotation.set(.18+cloudTurn.x,ambient*.035+cloudTurn.y,-.13);interactionShell.rotation.y=-ambient*.06;interactionShell.material.opacity=cloudImpulse*.32;interactionShell.scale.setScalar(1+cloudImpulse*.08);updateBand(t,active);const z=sound(),phase=panPhase(now);satellite.position.set(Math.sin(phase)*1.32*v.cloudSize,Math.cos(phase)*.33*v.cloudSize,Math.cos(phase)*1.05*v.cloudSize);satellite.scale.setScalar(.85+z.orbitDepth*.7);
       const el=webgl.domElement;el.style.left=`${b.x}px`;el.style.top=`${b.y}px`;el.style.width=`${b.w}px`;el.style.height=`${b.h}px`;const viewport=`${b.w}:${b.h}:${webgl.getPixelRatio()}`;if(cloudViewport!==viewport){webgl.setSize(b.w,b.h,false);camera.aspect=b.w/b.h;camera.updateProjectionMatrix();cloudViewport=viewport;}webgl.render(scene,camera);const projected=satellite.position.clone().project(camera);satelliteScreen={x:b.x+(projected.x*.5+.5)*b.w,y:b.y+(.5-projected.y*.5)*b.h};
     }else{
       const radius=Math.min(b.w,b.h)*.37*v.cloudSize;c.save();c.translate(b.x+b.w*.5,b.y+b.h*.5);for(let i=0;i<40;i++){const y=(i/39-.5)*radius*2,rr=Math.sqrt(Math.max(0,radius*radius-y*y));for(let j=0;j<100;j++){const th=j/100*TAU+ambient*.035,x=Math.cos(th)*rr,z=Math.sin(th)*rr;c.fillStyle=`rgba(225,235,232,${.4+(z/radius+1)*.28})`;c.fillRect(x,y+z*.18*v.cloudDepth,v.pointSize,v.pointSize);}}c.restore();
     }
     if(satelliteScreen)text(c,`PAN ${(Math.sin(panPhase(now))*sound().orbitDepth).toFixed(2)} · ${sound().orbitRate.toFixed(2)} Hz`,b.x+b.w*.5,b.y+b.h-6,'#b7b88b',8,'center');
+    const cloudTouches=[...contacts.values()].filter(q=>q.role==='cloud');for(let i=0;i<cloudTouches.length;i++){const q=cloudTouches[i];for(let j=1;j<=3;j++){const age=(t*.6+i*.31+j*.27)%1;c.strokeStyle=`rgba(221,235,148,${(1-age)*.32})`;c.lineWidth=.65;c.beginPath();c.arc(q.x,q.y,9+age*38,0,TAU);c.stroke();}if(i){const previous=cloudTouches[i-1];line(c,[[previous.x,previous.y],[q.x,q.y]],'rgba(221,235,148,.35)',.7);}}
     for(const q of contacts.values()){c.strokeStyle='#e5df7c';c.lineWidth=.8;c.beginPath();c.arc(q.x,q.y,9,0,TAU);c.stroke();}
   }
   function drawOutput(snap,v,b,height){
@@ -234,22 +237,22 @@ export function mount(host,api){
   function drawLog(snap,v){
     const b=layout.log,now=snap.time,events=cloud.events.slice(-40);c.fillStyle='#e8df76';c.fillRect(b.x,b.y,b.w,b.h);text(c,'GRAIN LOG',b.x+7,b.y+12,'#151b18',9);text(c,`${events.length} EVENTS`,b.x+b.w-7,b.y+12,'#303725',8,'right');
     const graph={x:b.x+5,y:b.y+18,w:b.w-10,h:Math.max(13,b.h*.36)};c.fillStyle='#0b1010';c.fillRect(graph.x,graph.y,graph.w,graph.h);c.save();c.beginPath();c.rect(graph.x,graph.y,graph.w,graph.h);c.clip();
-    for(const e of events){const age=now-e.when,x=graph.x+graph.w*(1-age/2.8),y=graph.y+graph.h*(1-e.position);if(x<graph.x)continue;c.strokeStyle='rgba(233,223,117,.6)';c.beginPath();c.moveTo(x,y);c.lineTo(x+e.duration/2.8*graph.w,y-e.pan*7);c.stroke();c.fillStyle=e.when<=now&&e.until>now?'#fffbc1':'#d3cd83';c.shadowBlur=e.until>now?v.grainGlow*8:0;c.shadowColor='#e8e17e';c.beginPath();c.arc(x,y,1.4+e.level*3,0,TAU);c.fill();c.shadowBlur=0;}c.restore();
+    for(const e of events){const age=now-e.when,x=graph.x+graph.w*(1-age/2.8),flow=api.reducedMotion?0:Math.sin(age*2.3+e.window*1.7)*Math.sin(Math.PI*clamp(age/2.8,0,1))*graph.h*.19,y=graph.y+graph.h*(.12+.76*(1-e.position))+flow;if(x<graph.x||age<0)continue;c.strokeStyle='rgba(233,223,117,.6)';c.beginPath();c.moveTo(x,y);c.quadraticCurveTo(x+e.duration/2.8*graph.w*.55,y-e.pan*8-flow*.4,x+e.duration/2.8*graph.w,y-e.pan*5);c.stroke();c.fillStyle=e.when<=now&&e.until>now?'#fffbc1':'#d3cd83';c.shadowBlur=e.until>now?v.grainGlow*8:0;c.shadowColor='#e8e17e';c.beginPath();c.arc(x,y,1.4+e.level*3,0,TAU);c.fill();c.shadowBlur=0;}c.restore();
     const available=b.h-graph.h-25,rows=Math.max(1,Math.floor(available/10)),logged=events.slice(-rows).reverse();for(let i=0;i<logged.length;i++){const e=logged[i],y=graph.y+graph.h+10+i*10;text(c,`${String(e.id).padStart(4,'0')} ${e.when.toFixed(2).padStart(7,' ')}  ${e.position.toFixed(3)}  ${Math.round(e.duration*1000)}ms  ${e.pitch>=0?'+':''}${e.pitch.toFixed(1)}`,b.x+7,y,'#3b442d',8);}
     drawTable(snap,v);
   }
   let tablePaths=null,tableKey='';
   function drawTable(snap,v){const q=layout.window,z=sound(),key=`${q.x}:${q.y}:${q.w}:${q.h}:${z.tableWarp}`;rect(c,q,'#a7b5a0');text(c,'TONE / TABLE',q.x+5,q.y+11,'#d5ddbd',8);const top=q.y+20,height=Math.max(14,q.h-42),width=q.w-12;
     if(tableKey!==key){tableKey=key;tablePaths=Array.from({length:7},(_,row)=>Array.from({length:65},(_,i)=>{const phase=i/64,depth=row/6;return[q.x+6+phase*width*(.67+.33*depth)+(1-depth)*width*.16,top+height*(.15+depth*.7)-wavetableSample(phase*TAU,depth,z.tableWarp)*height*.22];}));}
-    for(let row=0;row<7;row++){const active=Math.abs(row/6-z.tablePosition)<.1;line(c,tablePaths[row],active?'#f6f2b0':`rgba(169,198,133,${.32+row*.07})`,active?1.4:.8);}const x=q.x+5+z.tableWarp*(q.w-10),y=top+(1-z.tablePosition)*height;c.strokeStyle='#e8e1a0';c.lineWidth=1;c.beginPath();c.arc(x,y,4.5,0,TAU);c.stroke();text(c,`P ${z.tablePosition.toFixed(2)} W ${z.tableWarp.toFixed(2)}`,q.x+5,q.y+q.h-13,'#c6cda8',7);text(c,`MIX ${Math.round(z.tableMix*100)}%`,q.x+5,q.y+q.h-3,'#89997b',7);}
+    for(let row=0;row<7;row++){const active=Math.abs(row/6-z.tablePosition)<.1;line(c,tablePaths[row],active?'#f6f2b0':`rgba(169,198,133,${.32+row*.07})`,active?1.4:.8);}const selected=Array.from({length:65},(_,i)=>{const phase=i/64,depth=z.tablePosition;return[q.x+6+phase*width*(.67+.33*depth)+(1-depth)*width*.16,top+height*(.15+depth*.7)-wavetableSample(phase*TAU,depth,z.tableWarp)*height*.22];});line(c,selected,'#f6f2b0',1.5);const {x,y}=toneTableCursor(q,z.tablePosition,z.tableWarp);c.strokeStyle='#e8e1a0';c.lineWidth=1;c.beginPath();c.arc(x,y,4.5,0,TAU);c.stroke();text(c,`P ${z.tablePosition.toFixed(2)} W ${z.tableWarp.toFixed(2)}`,q.x+5,q.y+q.h-13,'#c6cda8',7);text(c,`MIX ${Math.round(z.tableMix*100)}%`,q.x+5,q.y+q.h-3,'#89997b',7);}
 
-  function cancel(){contacts.clear();roles.clear();latch=null;cloud.stop();nextTime=0;wasActive=false;}
+  function cancel(){contacts.clear();roles.clear();latch=null;pendingTap=null;cloud.stop();nextTime=0;wasActive=false;}
   return{
-    frame(t,dt){lastT=t;surface.resize();layout=bounds();const v=appearance(),snap=api.audio.snapshot();c.clearRect(0,0,layout.w,layout.h);c.fillStyle='#090a0c';c.fillRect(0,0,layout.w,layout.h);drawHistory(t,snap,v);drawFuture(snap,v);drawTimeline(snap,v);drawLog(snap,v);drawCloud(t,snap,v);buttons.style.left=`${layout.m}px`;buttons.style.bottom=layout.portrait?'12px':'18px';buttons.style.transform=layout.w<360?'scale(.88)':'none';buttons.style.transformOrigin='left bottom';
+    frame(t,dt){lastT=t;const decay=Math.exp(-Math.min(dt,.05)*5);gestureVelocity.x*=decay;gestureVelocity.y*=decay;cloudTurn.x=lerp(cloudTurn.x,clamp(gestureVelocity.y,-.65,.65),1-Math.exp(-dt*7));cloudTurn.y+=gestureVelocity.x*Math.min(dt,.05)*1.4;cloudImpulse*=Math.exp(-dt*2.1);surface.resize();layout=bounds();const v=appearance(),snap=api.audio.snapshot();c.clearRect(0,0,layout.w,layout.h);c.fillStyle='#090a0c';c.fillRect(0,0,layout.w,layout.h);drawHistory(t,snap,v);drawFuture(snap,v);drawTimeline(snap,v);drawLog(snap,v);drawCloud(t,snap,v);buttons.style.left=`${layout.m}px`;buttons.style.bottom=layout.portrait?'12px':'18px';buttons.style.transform=layout.w<360?'scale(.88)':'none';buttons.style.transformOrigin='left bottom';
       if(!bufferReady&&api.audio.context)ensureBuffer();
     },
     onStep(){ensureBuffer();schedule();},
-    setPlaying(playing){if(!playing&&!contacts.size&&!(api.state.hold&&latch)){cloud.stop();nextTime=0;wasActive=false;}},
+    setPlaying(playing){if(!playing&&!contacts.size&&!(api.state.hold&&latch)){cloud.stop();pendingTap=null;nextTime=0;wasActive=false;}},
     update(key,kind){if(kind==='sound'&&key==='position')readHead=sound().position;},
     cancel,
     getData(){return{position:readHead,windowOffsets:[...windowOffsets],orbitOffset,source:sourceName==='HARMONIC BUFFER'?'internal':'local-file'};},
