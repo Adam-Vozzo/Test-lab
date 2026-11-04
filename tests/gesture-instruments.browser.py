@@ -29,6 +29,7 @@ async def main():
                 await context.add_init_script("const getContext=HTMLCanvasElement.prototype.getContext;HTMLCanvasElement.prototype.getContext=function(type,...args){return type==='webgl2'?null:getContext.call(this,type,...args)}")
             async def cell_probe(route):
                 source=(ROOT/'instruments/cellular.js').read_text().replace('cells.count=n;','cells.count=n;window.__cellPool={count:n,gather:bodies.map(b=>b.gather)};')
+                source=source.replace('frame(time,dt){t=time;','frame(time,dt){t=Number.isFinite(window.__idleTime)?window.__idleTime:time;window.__renderedIdleTime=t;').replace('function drawLife(v,snap){const r=layout.right,g=boardGeometry(r),age=snap.time-lastBirthTime;','function drawLife(v,snap){const r=layout.right,g=boardGeometry(r),age=snap.time-lastBirthTime;window.__lifeGeometry={...g,dpr:surface.dpr};')
                 await route.fulfill(status=200,content_type='text/javascript',body=source)
             async def radar_probe(route):
                 source=(ROOT/'instruments/graticule.js').read_text().replace('function drawMap(v,snap){const r=layout.left,g=radar(r);','function drawMap(v,snap){const r=layout.left,g=radar(r);window.__radar={...g,zoom:radarZoom};')
@@ -65,7 +66,15 @@ async def main():
             results['carrier']={'contact_rms':during['rms'],'pinch_index':[baseline['index'],pinched['index']]}
             await page.screenshot(path=str(OUT/'carrier-blob-gesture.png'))
 
-            await switch('cellular');p=await panes();left=p['left'];await page.wait_for_function('window.__cellPool?.count>300');idle_pool=await page.evaluate('__cellPool');await page.evaluate('__gestureQA.state.sound.attack=.8;__gestureQA.state.sound.release=.8;__gestureQA.audio.configure(__gestureQA.state.sound);__gestureQA.controller.update()')
+            await switch('cellular');p=await panes();left=p['left'];await page.wait_for_function('window.__cellPool?.count>300');idle_pool=await page.evaluate('__cellPool');paused_before=await snapshot()
+            async def idle_pixels(time,baseline=False):
+                await page.evaluate('(time)=>window.__idleTime=time',time);await page.wait_for_function('(time)=>__renderedIdleTime===time',arg=time)
+                return await page.evaluate('''(baseline)=>{const g=__lifeGeometry,c=document.querySelector('.instrument-canvas').getContext('2d'),pixels=c.getImageData(Math.floor(g.x*g.dpr),Math.floor(g.y*g.dpr),Math.floor(g.w*g.dpr),Math.floor(g.h*g.dpr)).data;if(baseline){window.__idlePixels=pixels;return 0;}let changed=0;for(let i=0;i<pixels.length;i+=4){if(Math.max(...[0,1,2,3].map(k=>Math.abs(pixels[i+k]-__idlePixels[i+k])))>8)changed++;}return changed;}''',baseline)
+            await idle_pixels(10,True);idle_changes=await idle_pixels(12);assert idle_changes>500,'Paused Life board should visibly breathe and drift'
+            paused_after=await snapshot();assert paused_after['data']==paused_before['data'],'Ambient motion must not evolve Conway state';assert paused_after['sources']==0 and paused_after['voices']==0,'Ambient motion must remain silent'
+            await page.emulate_media(reduced_motion='reduce');await idle_pixels(10,True);assert await idle_pixels(12)==0,'Reduced motion must stop ambient cell deformation'
+            await page.emulate_media(reduced_motion='no-preference');await page.evaluate('delete window.__idleTime')
+            await page.evaluate('__gestureQA.state.sound.attack=.8;__gestureQA.state.sound.release=.8;__gestureQA.audio.configure(__gestureQA.state.sound);__gestureQA.controller.update()')
             await page.mouse.move(left['x']+left['w']*.46,left['y']+left['h']*.48);await page.mouse.down();await page.wait_for_timeout(130);attack=await page.evaluate('__gestureQA.audio.snapshot().voices.reduce((m,v)=>Math.max(m,v.level),0)');await page.wait_for_function('__cellPool.gather.some(x=>x>.99)');held=await snapshot();await page.screenshot(path=str(OUT/'cellular-held.png'));await page.mouse.up();await page.wait_for_function('__cellPool.gather.every(x=>x<.001)');released_pool=await page.evaluate('__cellPool');await page.wait_for_timeout(300);released=await snapshot()
             assert idle_pool['count']==released_pool['count'] and idle_pool['count']>300,'Cell population should persist after dispersal'
             assert held['rms']>0 and held['voices']>=1,'Cellular contact did not produce audio'
@@ -73,7 +82,7 @@ async def main():
             before=await snapshot();expected=await page.evaluate("async()=>{const {lifeStep}=await import('/instruments/cellular.js');return Array.from(lifeStep(__gestureQA.controller.getData().board,24,24).cells)}")
             right=p['right'];await page.mouse.click(right['x']+right['w']*.84,right['y']+right['h']-23);await page.wait_for_function('(generation)=>__gestureQA.controller.getData().generation>generation',arg=before['data']['generation']);after=await snapshot()
             assert after['data']['board']==expected,'Life STEP does not execute Conway B3/S23'
-            results['cellular']={'early_attack_level':attack,'held_rms':held['rms'],'released_voices':released['voices'],'generation':after['data']['generation'],'persistent_cells':idle_pool['count']}
+            results['cellular']={'early_attack_level':attack,'held_rms':held['rms'],'released_voices':released['voices'],'generation':after['data']['generation'],'persistent_cells':idle_pool['count'],'idle_changed_pixels':idle_changes,'idle_state_unchanged':True,'reduced_motion_pixels_unchanged':True}
 
             await switch('graticule');await page.evaluate('__gestureQA.state.appearance.leftWidth=34;__gestureQA.state.appearance.rightWidth=56;__gestureQA.state.appearance.layoutGap=42');await page.wait_for_timeout(150);before=await snapshot()
             g=await page.evaluate("async()=>{const {splitLayout}=await import('/instrument-layout.js'),{sonarGeometry}=await import('/instruments/graticule.js'),r=document.querySelector('#stage').getBoundingClientRect(),pane=splitLayout(r.width,r.height,__gestureQA.state.appearance).left,g=sonarGeometry(pane);return {...g,x:g.x+r.x,y:g.y+r.y}}")

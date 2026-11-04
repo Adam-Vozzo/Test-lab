@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {blobPitch,arcSound,synthesisBlob,carrierAnimationPhases,definition as carrier} from '../instruments/carrier.js';
 import {sonarGeometry,starsCrossed,starPitch,lissajousPoint,radarWaveZoom,starDraggedOutside,definition as graticule} from '../instruments/graticule.js';
-import {lifeStep,contactGather,lifeModulation,definition as cellular} from '../instruments/cellular.js';
+import {lifeStep,contactGather,lifeModulation,lifeCellMotion,definition as cellular} from '../instruments/cellular.js';
 import {phasePoint,definition as phaseVolume} from '../instruments/phase-volume.js';
 import {splitLayout} from '../instrument-layout.js';
 const TAU=Math.PI*2;
@@ -65,4 +65,17 @@ test('Carrier animation phases retain both frequencies through multi-day session
     for(let i=0;i<2;i++)assert.ok(Math.abs(((next[i]-phases[i]+tau)%tau)-[.13,.2][i]/60)<1e-9);
   }
   for(const invalid of[NaN,Infinity,-Infinity])assert.deepEqual(carrierAnimationPhases(invalid),[0,0]);
+});
+
+
+test('idle Life cells move independently without relying on the generation or audio clock',()=>{
+ const poses=Array.from({length:24},(_,i)=>lifeCellMotion(i,10,.55)),later=poses.map((_,i)=>lifeCellMotion(i,12,.55));
+ const displacements=poses.map((p,i)=>Math.hypot(p.x-later[i].x,p.y-later[i].y));
+ assert.ok(displacements.reduce((a,b)=>a+b)/poses.length>.06,'Default drift should be visible at compact cell sizes within two seconds');
+ assert.ok(new Set(poses.map(p=>p.scaleX.toFixed(4))).size>20,'Cells must not breathe uniformly');
+ for(let i=0;i<24;i++)for(const t of[0,10,25,80]){
+  const p=lifeCellMotion(i,t,1);assert.ok(Math.abs(p.x)<=.305&&Math.abs(p.y)<=.285);assert.ok(p.scaleX>=.645&&p.scaleX<=1.355&&p.scaleY>=.645&&p.scaleY<=1.355);
+  assert.deepEqual(lifeCellMotion(i,t,0),{x:0,y:0,scaleX:1,scaleY:1,angle:0,bend:0});
+  assert.deepEqual(lifeCellMotion(i,t,.55,true),lifeCellMotion(i,0,0));
+ }
 });
