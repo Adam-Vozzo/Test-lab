@@ -1,5 +1,7 @@
 /* One quiet control edge; the playing surfaces keep the full canvas. */
 :root{--footer-height:64px;--text-tracking:0em}
+/* Browser double-tap zoom is disabled; native pinch and panel scrolling remain available. */
+html,body{touch-action:manipulation}
 /* Sustained presses play the instrument; only text-entry controls select text. */
 body{user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
 input:not([type]),input:is([type=text],[type=search],[type=email],[type=url],[type=tel],[type=password],[type=number]),textarea,[contenteditable=""],[contenteditable=true],[contenteditable=plaintext-only]{user-select:text;-webkit-user-select:text;-webkit-touch-callout:default}
@@ -128,3 +130,6 @@ html[data-copy=none] [data-copy],html[data-copy=none] .axis-label,html[data-copy
 @media(pointer:coarse){:root{--footer-corner-bottom:10px}}
 @media(max-width:640px) and (orientation:portrait){.instrument,.reference .instrument{height:auto;min-height:var(--app-height,100dvh)}.bottom-bar,.reference .bottom-bar{padding-inline:max(20px,env(safe-area-inset-left)) max(20px,env(safe-area-inset-right))}}
 @media(max-width:370px){.bottom-bar,.reference .bottom-bar{padding-inline:14px}.footer-transport{gap:2px}.footer-key{max-width:58px;padding-inline:2px}.footer-tool{width:31px;min-width:31px}.bottom-bar .tempo-control{padding-right:2px}.tempo-trigger{min-width:54px}}
+
+/* Avoid WebKit focus zoom on wide touch displays without restricting pinch zoom. */
+@media(any-pointer:coarse){#appearance .ae-copy input,#appearance .ae-save-form input,#appearance .ae-seed input,input:not([type]),input:is([type=text],[type=search],[type=email],[type=url],[type=tel],[type=password],[type=number]),textarea,[contenteditable=true],[contenteditable=""],[contenteditable=plaintext-only]{font-size:16px}}
