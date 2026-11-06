@@ -12,4 +12,5 @@ export const INSTRUMENTS=[
   {id:'granular',name:'Past / Future',batch:3,description:'Buffer history · granular playback',colors:['#dfce57','#b4c6e3'],load:()=>import('./granular.js')},
   {id:'terrain',name:'Timbre Terrain',batch:4,description:'Preserved contour field · note map',colors:['#dfdf58','#c99870'],load:()=>import('./terrain.js')},
   {id:'phase-volume',name:'Phase Volume',batch:4,description:'Delayed oscillator slices · point volume',colors:['#8eb9ff','#434b9c'],load:()=>import('./phase-volume.js')},
+  {id:'milkdrop',name:'MilkDrop',description:'Audio-reactive feedback · touch synthesis',colors:['#62efd9','#c180ff'],load:()=>import('./milkdrop.js')},
 ];
