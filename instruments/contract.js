@@ -26,6 +26,9 @@
  * api.noteName(midi), api.save(), api.setStatus(text), api.toast(text).
  * api.setSound(patch) updates sound parameters, sounding/latched voices,
  * visible controls and persistence. Prefer it for gesture-driven parameters.
+ * api.setAppearance(patch,{history=true}={}) updates visual parameters,
+ * visible controls and persistence. Use history:false for automatic preset
+ * cycling; explicit preset selections keep undo history.
  * definition.commonSoundControls=false hides the standard oscillator/ADSR
  * controls for engines such as granular; supply actual custom controls instead.
  * `api.audio.snapshot()` = {time,rms,step,voices:[{id,midi,level,gate}],waveform,frequency}.

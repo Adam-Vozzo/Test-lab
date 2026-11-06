@@ -123,7 +123,10 @@ export function createFloatingPanels(configurations,{storageKey=STORAGE}={}) {
     if (!openingOrder.includes(id)) openingOrder.push(id);
     layout();
     activate(panel);
-    if (focus) (panel.element.querySelector(panel.focus) || panel.handle).focus({preventScroll:true});
+    // Focusing a native select during the opening user gesture can open its
+    // picker on WebKit. Enter the editor at its neutral header control; Tab
+    // reaches the fields without selecting one on the user's behalf.
+    if (focus) panel.handle.focus({preventScroll:true});
     persist();
   }
 

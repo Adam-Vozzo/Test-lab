@@ -171,12 +171,12 @@ for(const [id,key,min,max]of [['attack-handle','attack',.005,2],['release-handle
 
 function closePerformance(restoreFocus=false){const panel=$('performance-popover');if(panel.hidden)return false;panel.hidden=true;$('performance-toggle').setAttribute('aria-expanded','false');if(restoreFocus)$('performance-toggle').focus({preventScroll:true});return true;}
 const floatingPanels=createFloatingPanels([
- {id:'sound-popover',name:'Sound',trigger:'sound-toggle',header:'.popover-heading',focus:'#sound-preset',width:380,beforeOpen:()=>closePerformance()},
- {id:'appearance',name:'Appearance',trigger:'appearance-toggle',header:'.ae-top',focus:'.ae-look',width:420,beforeOpen:()=>{closePerformance();appearance.refresh();}},
+ {id:'sound-popover',name:'Sound',trigger:'sound-toggle',header:'.popover-heading',width:380,beforeOpen:()=>closePerformance()},
+ {id:'appearance',name:'Appearance',trigger:'appearance-toggle',header:'.ae-top',width:420,beforeOpen:()=>{closePerformance();appearance.refresh();}},
 ]);
 $('sound-toggle').addEventListener('click',()=>floatingPanels.toggle('sound-popover'));
 $('appearance-toggle').addEventListener('click',()=>floatingPanels.toggle('appearance'));
-$('performance-toggle').addEventListener('click',()=>{if(closePerformance(true))return;$('performance-popover').hidden=false;$('performance-toggle').setAttribute('aria-expanded','true');$('root').focus({preventScroll:true});});
+$('performance-toggle').addEventListener('click',()=>{if(closePerformance(true))return;$('performance-popover').hidden=false;$('performance-toggle').setAttribute('aria-expanded','true');$('performance-popover').querySelector('[data-close]')?.focus({preventScroll:true});});
 document.addEventListener('click',e=>{const close=e.target.closest('[data-close]');if(!close)return;const id=close.dataset.close;if(id==='performance-popover')closePerformance(true);else floatingPanels.close(id,true);});
 document.addEventListener('pointerdown',e=>{if(!e.target.closest('#performance-popover,#performance-toggle'))closePerformance();});
 const disableSecondaryButtonTaps=enableSecondaryButtonTaps();
