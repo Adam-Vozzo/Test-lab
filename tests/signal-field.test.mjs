@@ -1,8 +1,6 @@
-import {readFile} from 'node:fs/promises';
 import assert from 'node:assert/strict';
 import test from 'node:test';
-const source=await readFile(new URL('../signal-field.js',import.meta.url),'utf8');
-const {SignalField,ElasticTrail,ASCII_GLYPHS,asciiGlyphIndex,sampleCellRadiance,filamentPoint,matrixValue,blurAlpha,flowPacket,directionalPacket,outputExposure}=await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+const {SignalField,ElasticTrail,ASCII_GLYPHS,asciiGlyphIndex,sampleCellRadiance,filamentPoint,matrixValue,blurAlpha,flowPacket,directionalPacket,outputExposure}=await import('../signal-field.js');
 
 // Independent canvases and a tiny area-sampling raster exercise the actual
 // emission→readback→matrix pass rather than mocking its result into existence.
