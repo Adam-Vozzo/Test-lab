@@ -1,4 +1,5 @@
 import * as THREE from './vendor/three.module.min.js';
+import {signalRenderProfile,renderPixelRatio,createFrameGate} from './render-performance.js';
 const UI_FONT = getComputedStyle(document.documentElement).getPropertyValue('--ui-font').trim() || 'monospace';
 
 const TAU = Math.PI * 2;
@@ -59,6 +60,7 @@ export class RingScene {
     this.host = host; this.getVisual = getVisual; this.getPalette = getPalette; this.getActivity = getActivity;this.onCameraChange=onCameraChange;
     this.orbit={yaw:value(cameraView,'yaw',0),pitch:value(cameraView,'pitch',0),zoom:value(cameraView,'zoom',1,.5,2.5),velocityYaw:0,velocityPitch:0,drag:null};
     this.disposed = false; this.time = 0; this.energy = 0; this.frame = 0; this.lastFrame = performance.now(); this.size = { w: 1, h: 1 };
+    this.renderProfile=signalRenderProfile();this.frameGate=createFrameGate(this.renderProfile.maxFps);
     this.canvas = document.createElement('canvas'); this.canvas.className = 'ring-canvas';
     this.canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;pointer-events:none;';
     this.canvas.setAttribute('aria-hidden', 'true'); host.prepend(this.canvas);
@@ -74,8 +76,9 @@ export class RingScene {
   }
 
   setupWebGL() {
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: false, alpha: true, premultipliedAlpha: true, powerPreference: 'high-performance', preserveDrawingBuffer: true });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.7));
+    // Keeping the default framebuffer alive forces extra work on tile-based
+    // mobile GPUs. capture() redraws the final pass on demand instead.
+    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: false, alpha: true, premultipliedAlpha: true, powerPreference: 'high-performance', preserveDrawingBuffer: false });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace; this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.scene = new THREE.Scene(); this.renderer.setClearColor(0,0);
     this.camera = new THREE.PerspectiveCamera(35, 1, .1, 60); this.camera.position.set(0, .1, 8.3);
@@ -679,7 +682,7 @@ export class RingScene {
     const floatOK=this.renderer.extensions.has('EXT_color_buffer_float')||this.renderer.extensions.has('EXT_color_buffer_half_float');
     const options={minFilter:THREE.LinearFilter,magFilter:THREE.LinearFilter,format:THREE.RGBAFormat,type:floatOK?THREE.HalfFloatType:THREE.UnsignedByteType};
     this.depthSupported=this.renderer.capabilities.isWebGL2||this.renderer.extensions.has('WEBGL_depth_texture');
-    this.target=new THREE.WebGLRenderTarget(1,1,options);if(this.depthSupported)this.target.depthTexture=new THREE.DepthTexture(1,1,THREE.UnsignedIntType);this.target.samples=this.renderer.capabilities.isWebGL2?Math.min(4,this.renderer.capabilities.maxSamples):0;
+    this.target=new THREE.WebGLRenderTarget(1,1,options);if(this.depthSupported)this.target.depthTexture=new THREE.DepthTexture(1,1,THREE.UnsignedIntType);this.target.samples=this.renderer.capabilities.isWebGL2?Math.min(this.renderProfile.ring.samples,this.renderer.capabilities.maxSamples):0;
     this.bloomA=new THREE.WebGLRenderTarget(1,1,{...options,depthBuffer:false}); this.bloomB=new THREE.WebGLRenderTarget(1,1,{...options,depthBuffer:false});
     this.postScene=new THREE.Scene();this.postCamera=new THREE.OrthographicCamera(-1,1,1,-1,0,1);
     this.blurMaterial=new THREE.ShaderMaterial({vertexShader:postVertex,fragmentShader:blurFragment,depthTest:false,depthWrite:false,uniforms:{source:{value:null},direction:{value:new THREE.Vector2()},threshold:{value:.5}}});
@@ -716,14 +719,20 @@ export class RingScene {
 
   resize() {
     if(this.disposed)return;const rect=this.host.getBoundingClientRect();const w=Math.max(1,rect.width),h=Math.max(1,rect.height);this.size={w,h};
-    const ratio=Math.min(devicePixelRatio||1,1.7);
-    if(this.fallback){this.canvas.width=Math.round(w*ratio);this.canvas.height=Math.round(h*ratio);this.ctx?.setTransform(ratio,0,0,ratio,0,0);return;}
+    // The budget follows CSS area, so a large Retina tablet does not allocate
+    // several times the phone's render targets. Camera and hit coordinates
+    // remain in CSS pixels; only the backing buffers change resolution.
+    const mobile=this.renderProfile.mobile,limits=this.qualityReduced&&!mobile?{...this.renderProfile.ring,maxDpr:1}:this.renderProfile.ring;
+    const ratio=renderPixelRatio(w,h,globalThis.devicePixelRatio||1,limits,this.qualityReduced&&mobile ? .8 : 1);
+    if(this.fallback){this.canvas.width=Math.max(1,Math.floor(w*ratio));this.canvas.height=Math.max(1,Math.floor(h*ratio));this.ctx?.setTransform(ratio,0,0,ratio,0,0);return;}
+    if(this.renderer.getPixelRatio()!==ratio)this.renderer.setPixelRatio(ratio);
     this.renderer.setSize(w,h,false);this.camera.aspect=w/h;this.camera.updateProjectionMatrix();
-    const rw=Math.round(w*this.renderer.getPixelRatio()),rh=Math.round(h*this.renderer.getPixelRatio());this.target.setSize(rw,rh);this.bloomA.setSize(Math.max(1,Math.round(rw/2)),Math.max(1,Math.round(rh/2)));this.bloomB.setSize(Math.max(1,Math.round(rw/2)),Math.max(1,Math.round(rh/2)));this.postMaterial.uniforms.resolution.value.set(rw,rh);
+    const rw=this.canvas.width,rh=this.canvas.height;this.target.setSize(rw,rh);this.bloomA.setSize(Math.max(1,Math.floor(rw/2)),Math.max(1,Math.floor(rh/2)));this.bloomB.setSize(Math.max(1,Math.floor(rw/2)),Math.max(1,Math.floor(rh/2)));this.postMaterial.uniforms.resolution.value.set(rw,rh);
   }
 
   tick(now) {
-    if(this.disposed)return;this.raf=requestAnimationFrame(this.tick);if(document.hidden||this.contextLost){this.lastFrame=now;return;}
+    if(this.disposed)return;this.raf=requestAnimationFrame(this.tick);if(document.hidden||this.contextLost){this.lastFrame=now;this.frameGate.reset();return;}
+    if(!this.frameGate.due(now))return;
     const elapsed=(now-this.lastFrame)/1000,dt=Math.min(.045,elapsed);this.lastFrame=now;const v=this.getVisual()||{},p=this.getPalette()||{},a=this.getActivity()||{};
     this.updateOrbit(dt);
     const frozen=!!v.freeze; const motion=this.reducedMotion.matches?.13:1;
@@ -757,8 +766,10 @@ export class RingScene {
     this.blurMaterial.uniforms.source.value=this.bloomA.texture;this.blurMaterial.uniforms.threshold.value=0;this.blurMaterial.uniforms.direction.value.set(0,radius/this.bloomA.height);this.renderer.setRenderTarget(this.bloomB);this.renderer.render(this.postScene,this.postCamera);}
     this.postQuad.material=this.postMaterial;this.renderer.setRenderTarget(null);this.renderer.render(this.postScene,this.postCamera);this.presentParticleLayer();
     this.frame++;
-    this.frameAverage=(this.frameAverage??.016)*.96+elapsed*.04;
-    if(this.frame>90&&!this.qualityReduced&&this.frameAverage>.028){this.qualityReduced=true;this.renderer.setPixelRatio(Math.min(devicePixelRatio||1,1));this.target.samples=0;this.target.dispose();this.resize();}
+    // A suspended tab can resume without a hidden RAF. Do not interpret that
+    // isolated gap as a slow GPU and permanently reduce its quality.
+    if(elapsed>0&&elapsed<.25)this.frameAverage=(this.frameAverage??.016)*.96+elapsed*.04;
+    if(this.frame>90&&!this.qualityReduced&&this.frameAverage>.028&&elapsed<.25){this.qualityReduced=true;this.target.samples=0;this.target.dispose();this.resize();}
   }
 
   drawFallback(v,p,a,t) {
@@ -795,7 +806,10 @@ export class RingScene {
     c.restore();
   }
 
-  capture() { try { return this.canvas.toDataURL('image/png'); } catch { return null; } }
+  capture() { try {
+    if(!this.fallback&&!this.contextLost&&this.renderer){this.postQuad.material=this.postMaterial;this.renderer.setRenderTarget(null);this.renderer.render(this.postScene,this.postCamera);}
+    return this.canvas.toDataURL('image/png');
+  } catch { return null; } }
   dispose() {
     this.disposed=true;this.releaseParticleLayer();this.particleTexture?.dispose();this.clearContacts();cancelAnimationFrame(this.raf);this.observer?.disconnect();this.cageOverflow?.svg.remove();
     if(this.scene)this.scene.traverse(o=>{o.geometry?.dispose();if(o.material){(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>m.dispose());}});

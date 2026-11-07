@@ -1,4 +1,5 @@
 import * as THREE from './vendor/three.module.min.js';
+import {signalRenderProfile,renderPixelRatio} from './render-performance.js';
 const UI_FONT = getComputedStyle(document.documentElement).getPropertyValue('--ui-font').trim() || 'monospace';
 
 const TAU=Math.PI*2;
@@ -207,7 +208,21 @@ export class GalaxyScene {
   for(let i=0;i<count;i++){point.fromBufferAttribute(attr,i);point.z*=depth;point.z+=Math.sin(this.starMaterial.uniforms.clock.value*.16+this.stars.geometry.attributes.phase.getX(i))*.05*this.starMaterial.uniforms.drift.value;minZ=Math.min(minZ,point.z);maxZ=Math.max(maxZ,point.z);this.cloud.localToWorld(point);point.applyMatrix4(this.camera.matrixWorldInverse);minView=Math.min(minView,-point.z);maxView=Math.max(maxView,-point.z);}
   return{depth,renderedCount:count,localDepthRange:[minZ,maxZ],cameraDepthRange:[minView,maxView],populations:{...this.populationCounts},examples:{...this.depthExamples},crosshair:this.cursor.toArray()};
  }
- resize(){const r=this.host.getBoundingClientRect();this.width=Math.max(1,r.width);this.height=Math.max(1,r.height);this.ratio=Math.min(devicePixelRatio||1,1.5);this.overlay.width=Math.round(this.width*this.ratio);this.overlay.height=Math.round(this.height*this.ratio);this.ctx.setTransform(this.ratio,0,0,this.ratio,0,0);this.camera.aspect=this.width/this.height;this.camera.updateProjectionMatrix();this.renderer?.setPixelRatio(this.ratio);this.renderer?.setSize(this.width,this.height,false);if(this.starMaterial)this.starMaterial.uniforms.pixelRatio.value=this.ratio;if(this.nebulaMaterial)this.nebulaMaterial.uniforms.pixelRatio.value=this.ratio;if(this.anchorMaterial)this.anchorMaterial.uniforms.pixelRatio.value=this.ratio;}
+ resize(){
+  const r=this.host.getBoundingClientRect(),width=Math.max(1,r.width),height=Math.max(1,r.height);
+  const nativeRatio=globalThis.devicePixelRatio||1,profile=this.renderProfile||(this.renderProfile=signalRenderProfile());
+  const ratio=renderPixelRatio(width,height,nativeRatio,profile.galaxy),overlayRatio=Math.min(nativeRatio,1.5);
+  if(this.width===width&&this.height===height&&this.ratio===ratio&&this.overlayRatio===overlayRatio)return;
+  this.width=width;this.height=height;this.ratio=ratio;this.overlayRatio=overlayRatio;
+  // Text, guides and the reticle retain their original sharpness. Only the
+  // star field's GPU buffer is bounded on large touch displays.
+  const ow=Math.round(width*overlayRatio),oh=Math.round(height*overlayRatio);
+  if(this.overlay.width!==ow||this.overlay.height!==oh){this.overlay.width=ow;this.overlay.height=oh;}
+  this.ctx.setTransform(overlayRatio,0,0,overlayRatio,0,0);
+  this.camera.aspect=width/height;this.camera.updateProjectionMatrix();
+  if(this.renderer){if(this.renderer.getPixelRatio()!==ratio)this.renderer.setPixelRatio(ratio);this.renderer.setSize(width,height,false);}
+  for(const material of [this.starMaterial,this.nebulaMaterial,this.anchorMaterial])if(material)material.uniforms.pixelRatio.value=ratio;
+ }
  tick(now){if(this.dead)return;this.raf=requestAnimationFrame(this.tick);if(document.hidden||now-this.lastFrame<32)return;const dt=Math.min(.1,(now-this.lastFrame)/1000);this.lastFrame=now;this.render(dt);}
  render(dt){
   const v=this.getVisual(),p=this.getPalette(),a=this.getActivity();this.syncCursor();const drift=val(v,'skyDrift',.15,0,1);if(!v.freeze&&!this.reduced.matches)this.clock+=dt;const t=v.freeze?val(v,'phase',0)*24:this.clock;

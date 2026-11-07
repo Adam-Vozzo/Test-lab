@@ -1,5 +1,6 @@
 /* Independent dotted filaments shared by both halves of the instrument.
  * They express the voices/filter without claiming to be a measured spectrum. */
+import {signalRenderProfile,renderPixelRatio} from './render-performance.js';
 const TAU = Math.PI * 2;
 export const ASCII_GLYPHS = '.,:;+=x*#%@';
 export const asciiGlyphIndex = value => Math.min(ASCII_GLYPHS.length-1,Math.floor(Math.sqrt(Math.max(0,Math.min(1,Number.isFinite(value)?value:0)))*ASCII_GLYPHS.length));
@@ -224,30 +225,39 @@ export class SignalField {
     this.frozen = null;
     this.disposed = false;
     this.reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
-    this.observer = new ResizeObserver(() => this.resize());
+    this.observer = new ResizeObserver(() => this.resize(false));
     this.observer.observe(host);
     this.resize();
     this.tick = this.tick.bind(this);
     this.raf = requestAnimationFrame(this.tick);
   }
 
-  resize() {
+  resize(force = true) {
     if (this.disposed) return;
     const box = this.host.getBoundingClientRect();
+    const width=Math.max(1,box.width),height=Math.max(1,box.height);
+    const profile=this.renderProfile||(this.renderProfile=signalRenderProfile());
+    const pixelRatio=renderPixelRatio(width,height,globalThis.devicePixelRatio||1,profile.particles);
+    // An unchanged observer notification must not discard a moving trail or
+    // reallocate its full-screen texture. Explicit resize() still invalidates
+    // the field, as callers use it when rebasing the scene.
+    if(!force&&this.width===width&&this.height===height&&this.pixelRatio===pixelRatio)return;
     this.elastic?.reset();this.sourceHistory=null;
-    this.width = Math.max(1, box.width);
-    this.height = Math.max(1, box.height);
-    this.pixelRatio = Math.min(devicePixelRatio || 1, 1.5);
+    this.width = width;
+    this.height = height;
+    this.pixelRatio = pixelRatio;
     for (const canvas of [this.canvas,this.particleCanvas]) {
-      canvas.width = Math.round(this.width * this.pixelRatio);
-      canvas.height = Math.round(this.height * this.pixelRatio);
+      const round=profile.mobile?Math.floor:Math.round;
+      const w=Math.max(1,round(width*pixelRatio)),h=Math.max(1,round(height*pixelRatio));
+      if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;}
     }
     this.ctx.setTransform(this.pixelRatio, 0, 0, this.pixelRatio, 0, 0);
     this.particleCtx.setTransform(this.pixelRatio, 0, 0, this.pixelRatio, 0, 0);
+    this.ctx.clearRect(0,0,width,height);this.particleCtx.clearRect(0,0,width,height);
     this.presentedParticleVersion=-1;this.particleLayer=null;this.connectionFrame=null;
     for (const canvas of [this.bloomSeed, this.bloomCanvas]) {
-      canvas.width = Math.max(1, Math.ceil(this.width * .5));
-      canvas.height = Math.max(1, Math.ceil(this.height * .5));
+      const w=Math.max(1,Math.ceil(width*.5)),h=Math.max(1,Math.ceil(height*.5));
+      if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;}
     }
   }
 
