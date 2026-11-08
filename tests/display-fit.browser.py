@@ -15,7 +15,7 @@ async def run(base):
   try:
    context=await browser.new_context(viewport={'width':844,'height':390},has_touch=True,is_mobile=True,device_scale_factor=1,service_workers='block')
    page=await context.new_page();errors=[];page.on('pageerror',lambda error:errors.append(str(error)));report=[]
-   for path in ['collection.html#carrier','index.html']:
+   for path in ['collection.html#relay','index.html']:
     await page.goto(base+'/'+path);await page.wait_for_selector('#play');await page.wait_for_timeout(400)
     for w,h in [(844,390),(1024,768),(390,844),(320,700),(1180,820)]:
      await page.set_viewport_size({'width':w,'height':h});await page.wait_for_timeout(130)
