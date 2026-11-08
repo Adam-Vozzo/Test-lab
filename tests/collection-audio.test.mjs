@@ -28,7 +28,7 @@ function fixture({suspended=false,maxVoices=16,audioSession,resumeMode='normal',
     get currentTime() {return now;}
     createGain() {const node=new Node();this.nodes.push(node);return node;}
     createOscillator() {return this.createGain();}
-    createBuffer(channels,length,sampleRate){return{channels,length,sampleRate};}
+    createBuffer(channels,length,sampleRate){const data=Array.from({length:channels},()=>new Float32Array(length));return{channels,length,sampleRate,getChannelData:i=>data[i]};}
     createBufferSource(){return this.createGain();}
     createPeriodicWave(real,imag,options) {return {real,imag,options};}
     createBiquadFilter() {return this.createGain();}
@@ -268,4 +268,29 @@ test('Relay supports Hold, independent arp provenance, cancelled future notes an
  f.audio.setPerformance({hold:false});f.advance(.3);assert.equal(f.audio.sources.size,0);assert.equal(f.audio._voices.length,0);
  const pulse=f.audio.pulse('scheduled',72,{release:.1},f.now+.2,.1);assert.ok(pulse.resonator.modes.every(m=>m.oscillator.stopped===pulse.stopAt));
  assert.equal(f.audio.snapshot().voices.length,0);f.advance(.24);assert.equal(f.audio.snapshot().voices[0].id,'scheduled');f.advance(.25);assert.equal(f.audio._voices.length,0);await f.audio.dispose();
+});
+
+
+test('Receiver shares its finite noise buffer while keeping independent voices and live expression',async()=>{
+ const f=fixture({maxVoices:4});await f.audio.start();f.audio.configure({waveform:'receiver',sideband:.34,spread:.22,air:.045,drift:.22,bandwidth:.68});
+ f.audio.noteOn('left',55,{pan:-.5,bandwidth:.3});f.audio.noteOn('right',62,{pan:.5,bandwidth:.8});
+ const [a,b]=f.audio._voices;assert.ok(a.receiver&&b.receiver);assert.equal(a.modulator,null);assert.equal(a.nodes.length,17);
+ assert.equal(a.receiver.tones.length,3);assert.equal(a.receiver.sources.length,5);assert.ok(a.receiver.sources.every(s=>s.started===1));
+ const noise=a.receiver.sources.at(-1);assert.strictEqual(noise.buffer,b.receiver.sources.at(-1).buffer);assert.equal(noise.buffer.length,96000);
+ const samples=noise.buffer.getChannelData(0);assert.ok(samples.every(Number.isFinite));assert.ok(Math.abs(samples.reduce((s,v)=>s+v,0)/samples.length)<1e-7);
+ assert.deepEqual(a.receiver.output.connections,[a.filter]);assert.deepEqual(a.pan.connections,[f.audio.output]);
+ f.advance(.2);f.audio.noteUpdate('left',59,{bandwidth:.95,air:.3});assert.strictEqual(f.audio._voices[0],a);assert.equal(a.carrier.frequency.value,midiFrequency(59));assert.equal(a.options.pan,-.5);assert.equal(b.options.bandwidth,.8);
+ f.audio.configure({spread:.6});assert.equal(a.options.bandwidth,.95);assert.equal(a.options.pan,-.5);assert.equal(b.options.pan,.5);
+ for(let i=0;i<20;i++)f.audio.noteOn('pressure-'+i,48+i);assert.equal(f.audio._voices.length,4);assert.ok(a.disposed&&a.nodes.every(n=>n.disconnected));
+ const remaining=[...f.audio._voices];await f.audio.dispose();assert.ok(remaining.every(v=>v.receiver.sources.every(s=>s.stopped!==undefined)&&v.nodes.every(n=>n.disconnected)));
+});
+
+test('Receiver Hold, arp, scheduled onset and cancellation own every noise and tonal source',async()=>{
+ const f=fixture();await f.audio.start();f.audio.configure({waveform:'receiver',release:.08});f.audio.setPerformance({hold:true});
+ f.audio.noteOn('a',55);f.audio.noteOff('a');assert.equal(f.audio.sources.get('a').physical,false);assert.equal(f.audio.snapshot().voices[0].gate,true);
+ f.audio.setPerformance({arp:true,bpm:220,arpRate:32});f.audio.noteOn('b',62);f.audio.noteOff('b');f.advance(.06);
+ assert.ok(f.audio._voices.some(v=>v.kind==='arp'&&v.receiver));f.audio.noteOff('a',{force:true});assert.equal(f.audio._voices.some(v=>v.id==='a'&&v.start>f.now),false);assert.ok(f.audio.sources.has('b'));
+ f.audio.setPerformance({hold:false});f.advance(.3);assert.equal(f.audio.sources.size,0);assert.equal(f.audio._voices.length,0);
+ const voice=f.audio.pulse('future',67,{release:.1},f.now+.2,.1);assert.ok(voice.receiver.sources.every(s=>s.stopped===voice.stopAt));assert.equal(f.audio.snapshot().voices.length,0);
+ f.advance(.24);assert.equal(f.audio.snapshot().voices[0].id,'future');f.advance(.25);assert.equal(f.audio._voices.length,0);assert.ok(voice.nodes.every(n=>n.disconnected));await f.audio.dispose();
 });

@@ -13,6 +13,7 @@ export const INSTRUMENTS=[
   {id:'terrain',name:'Timbre Terrain',batch:4,description:'Preserved contour field · note map',colors:['#dfdf58','#c99870'],load:()=>import('./terrain.js')},
   {id:'phase-volume',name:'Phase Volume',batch:4,description:'Delayed oscillator slices · point volume',colors:['#8eb9ff','#434b9c'],load:()=>import('./phase-volume.js')},
   {id:'milkdrop',name:'MilkDrop',description:'Audio-reactive feedback · touch synthesis',colors:['#62efd9','#c180ff'],load:()=>import('./milkdrop.js')},
+  {id:'receiver',name:'Receiver',description:'Signal tracking · detuned synthesis',colors:['#bccac8','#31444f'],load:()=>import('./receiver.js')},
 ];
 
 // Old home-screen links select the replacement without importing its retired

@@ -1,4 +1,4 @@
-"""Native PWA update and offline regression using the archived v24 worker.
+"""Native PWA update and offline regression using the archived v25 worker.
 Run after source edits finish: python3 tests/collection-offline.browser.py
 Requires Python Playwright. Uses a private loopback server, no WebGL or remote assets.
 """
@@ -18,7 +18,7 @@ from playwright.async_api import async_playwright
 ROOT=Path(__file__).resolve().parents[1]
 OUT=ROOT/'qa'/'collection-offline'
 CURRENT=(ROOT/'sw.js').read_text()
-PREVIOUS=(ROOT/'tests/fixtures/sw-v24.js').read_text()
+PREVIOUS=(ROOT/'tests/fixtures/sw-v25.js').read_text()
 VERSION=re.search(r'\$\{CACHE_PREFIX\}([^`]+)',CURRENT).group(1)
 OLD_VERSION=re.search(r'\$\{CACHE_PREFIX\}([^`]+)',PREVIOUS).group(1)
 NEW='duo-ember-shell-'+VERSION
@@ -36,9 +36,6 @@ class Handler(SimpleHTTPRequestHandler):
     def do_GET(self):
         if self.path=='/Test-lab/sw.js':body=(CURRENT if phase['new'] else PREVIOUS).encode();kind='text/javascript'
         elif self.path=='/Test-lab/update-fixture.html':body=FIXTURE.encode();kind='text/html; charset=utf-8'
-        # This obsolete v24 asset is cached, never executed by the update fixture.
-        # Its production module has been removed; the new shell must not retain it.
-        elif not phase['new'] and self.path=='/Test-lab/instruments/carrier.js':body=b'// Retired v24 module fixture.\n';kind='text/javascript'
         else:return super().do_GET()
         self.send_response(200);self.send_header('Content-Type',kind);self.send_header('Content-Length',str(len(body)));self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(body)
 
@@ -71,7 +68,7 @@ async def run(base):
                 await page.mouse.up();await page.evaluate("dispatchEvent(new Event('duo:transport'))")
             await page.wait_for_function('window.ready');report['activatedAfterRelease']=True
             cache=await page.evaluate('''async()=>{const names=await caches.keys(),name=names.find(n=>n.startsWith('duo-ember-shell-')),c=await caches.open(name),assets=[];for(const request of await c.keys()){const bytes=await(await c.match(request)).arrayBuffer(),hash=await crypto.subtle.digest('SHA-256',bytes);assets.push({path:new URL(request.url).pathname.split('/Test-lab/')[1],sha256:[...new Uint8Array(hash)].map(b=>b.toString(16).padStart(2,'0')).join('')});}return{names,name,assets};}''')
-            assert set(cache['names'])=={NEW,'unrelated-app'};assert len(cache['assets'])==55,len(cache['assets'])
+            assert set(cache['names'])=={NEW,'unrelated-app'};assert len(cache['assets'])==58,len(cache['assets'])
             def verify_hashes():
                 for asset in cache['assets']:assert hashlib.sha256((ROOT/asset['path']).read_bytes()).hexdigest()==asset['sha256'],asset['path']
             verify_hashes();report['cachedFiles']=cache['assets'];report['cacheCount']=len(cache['assets']);report['unrelatedCachePreserved']=True
@@ -92,7 +89,7 @@ async def run(base):
                 assert response.from_service_worker and response.status==200
                 await page.wait_for_function("id=>document.querySelector('#stage').dataset.instrument===id&&!document.querySelector('#stage').hasAttribute('aria-busy')&&!document.querySelector('.load-error')",arg=id)
                 report['offlineRoutes'].append(id)
-            assert len(report['offlineRoutes'])==13
+            assert len(report['offlineRoutes'])==14
             response=await page.goto(base+'index.html#signal',wait_until='domcontentloaded');assert response.from_service_worker and response.status==200
             assert hashlib.sha256(await response.body()).hexdigest()==hashlib.sha256((ROOT/'index.html').read_bytes()).hexdigest()
             await page.wait_for_function("!!document.querySelector('.galaxy-controls')");report['offlineSignal']=True

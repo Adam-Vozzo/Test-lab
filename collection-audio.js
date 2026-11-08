@@ -1,8 +1,9 @@
 import {wavetableCoefficients} from './wavetable.js';
 import {createRelayVoice,RELAY_DEFAULTS} from './relay-voice.js';
+import {createReceiverVoice,RECEIVER_DEFAULTS} from './receiver-voice.js';
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const number = (value, fallback, min, max) => Number.isFinite(Number(value)) ? clamp(Number(value), min, max) : fallback;
-const WAVES = new Set(['sine', 'triangle', 'sawtooth', 'square', 'wavetable', 'resonator']);
+const WAVES = new Set(['sine', 'triangle', 'sawtooth', 'square', 'wavetable', 'resonator', 'receiver']);
 const DEFAULTS = Object.freeze({waveform:'triangle',tablePosition:.35,tableWarp:0,attack:.018,decay:.18,sustain:.65,release:.55,cutoff:6500,resonance:1.2,gain:.7,pan:0,ratio:2,index:0,detune:0,crush:0,glide:.025,echo:.08,delayTime:.23,feedback:.18,eqLowGain:0,eqLowFreq:160,eqMidGain:0,eqMidFreq:1200,eqMidQ:.7,eqHighGain:0,eqHighFreq:6000});
 export const midiFrequency = midi => 440 * Math.pow(2, (number(midi, 60, 0, 127) - 69) / 12);
 
@@ -177,7 +178,7 @@ export class CollectionAudio {
     return {
       waveform: WAVES.has(input.waveform) ? input.waveform : 'triangle',
       tablePosition:number(input.tablePosition,.35,0,1),tableWarp:number(input.tableWarp,0,0,1),
-      ...Object.fromEntries(Object.entries(RELAY_DEFAULTS).map(([key,value])=>[key,number(input[key],value,0,1)])),
+      ...Object.fromEntries(Object.entries({...RELAY_DEFAULTS,...RECEIVER_DEFAULTS}).map(([key,value])=>[key,number(input[key],value,0,1)])),
       attack:number(input.attack,.018,.002,4), decay:number(input.decay,.18,.005,4),
       sustain:number(input.sustain,.65,0,1), release:number(input.release,.55,.015,8),
       cutoff:number(input.cutoff,6500,25,20000), resonance:number(input.resonance,1.2,.1,16),
@@ -356,28 +357,29 @@ export class CollectionAudio {
     }
     const context = this._context, options = this._options(source.options);
     const resonator=options.waveform==='resonator'?createRelayVoice(context,midiFrequency(source.midi),options,when):null;
-    const carrier = resonator?resonator.modes[0].oscillator:context.createOscillator(), modulator = resonator?null:context.createOscillator(), modulation = resonator?null:context.createGain();
+    const receiver=options.waveform==='receiver'?createReceiverVoice(context,midiFrequency(source.midi),options,when):null,engine=resonator||receiver;
+    const carrier = resonator?resonator.modes[0].oscillator:receiver?receiver.carrier:context.createOscillator(), modulator = engine?null:context.createOscillator(), modulation = engine?null:context.createGain();
     const filter = context.createBiquadFilter(), shaper = context.createWaveShaper(), amp = context.createGain();
     const pan = context.createStereoPanner ? context.createStereoPanner() : context.createGain();
     const voice = {id:source.id,generation:source.generation,serial:++this._serial,kind,midi:source.midi,options,start:when,releaseAt:null,releaseLevel:0,releaseDuration:0,stopAt:Infinity,disposed:false,
-      carrier,modulator,modulation,resonator,filter,shaper,amp,pan,nodes:[...(resonator?resonator.nodes:[carrier,modulator,modulation]),filter,shaper,amp,pan],envelope:{attack:options.attack,decay:options.decay,sustain:options.sustain},peakScale:resonator ? .32 : .17,peak:(resonator ? .32 : .17)*options.gain*options.velocity};
-    if(!resonator){this._setWaveform(voice,options);modulator.type = 'sine';} filter.type = 'lowpass';
+      carrier,modulator,modulation,resonator,receiver,engine,filter,shaper,amp,pan,nodes:[...(engine?engine.nodes:[carrier,modulator,modulation]),filter,shaper,amp,pan],envelope:{attack:options.attack,decay:options.decay,sustain:options.sustain},peakScale:resonator ? .32 : receiver ? .26 : .17,peak:(resonator ? .32 : receiver ? .26 : .17)*options.gain*options.velocity};
+    if(!engine){this._setWaveform(voice,options);modulator.type = 'sine';} filter.type = 'lowpass';
     const hz = midiFrequency(source.midi);
-    if(!resonator){carrier.frequency.setValueAtTime(hz,when); carrier.detune.setValueAtTime(options.detune,when);
+    if(!engine){carrier.frequency.setValueAtTime(hz,when); carrier.detune.setValueAtTime(options.detune,when);
       modulator.frequency.setValueAtTime(Math.min(context.sampleRate*.45,hz*options.ratio),when);
       modulation.gain.setValueAtTime(hz*options.index,when);}
     filter.frequency.setValueAtTime(Math.min(context.sampleRate*.45,options.cutoff),when); filter.Q.setValueAtTime(options.resonance,when);
     if (pan.pan) pan.pan.setValueAtTime(options.pan,when);
     this._setCrush(voice,options.crush);
-    (resonator||carrier).connect(filter);
+    (engine||carrier).connect(filter);
     if (voice.shaperActive) { filter.connect(shaper); shaper.connect(amp); }
     else filter.connect(amp);
     voice.connected = true; amp.connect(pan); pan.connect(this._output);
-    if(!resonator){modulator.connect(modulation); modulation.connect(carrier.frequency);}
+    if(!engine){modulator.connect(modulation); modulation.connect(carrier.frequency);}
     amp.gain.setValueAtTime(0,when); amp.gain.linearRampToValueAtTime(voice.peak,when+options.attack); amp.gain.linearRampToValueAtTime(voice.peak*options.sustain,when+options.attack+options.decay);
     this._voices.push(voice);
     carrier.onended = () => this._destroyVoice(voice);
-    if(resonator)resonator.start(when);else{carrier.start(when);modulator.start(when);}
+    if(engine)engine.start(when);else{carrier.start(when);modulator.start(when);}
     return voice;
   }
 
@@ -385,7 +387,7 @@ export class CollectionAudio {
     if(options.waveform!=='wavetable'){
       // A running voice retains its synthesis topology. Instrument changes
       // clear voices before selecting their new topology.
-      const waveform=options.waveform==='resonator'?'sine':options.waveform;
+      const waveform=options.waveform==='resonator'||options.waveform==='receiver'?'sine':options.waveform;
       if(voice.waveKey!==waveform){voice.carrier.type=waveform;voice.waveKey=waveform;}
       return;
     }
@@ -418,7 +420,7 @@ export class CollectionAudio {
     if (voice.disposed) return;
     const options = this._options(rawOptions), now = Math.max(this.now,voice.start), hz = midiFrequency(midi), before = voice.options;
     voice.midi = midi; voice.options = options;
-    if(voice.resonator)voice.resonator.update(hz,options,now);
+    if(voice.engine)voice.engine.update(hz,options,now);
     else{this._setWaveform(voice,options);
       this._smooth(voice.carrier.frequency,hz,now,options.glide);
       this._smooth(voice.carrier.detune,options.detune,now,options.glide);
@@ -469,7 +471,7 @@ export class CollectionAudio {
     voice.releaseAt = when; voice.releaseLevel = level; voice.releaseDuration = duration; voice.stopAt = when+duration+.025;
     const gain = voice.amp.gain;
     gain.cancelScheduledValues(when); gain.setValueAtTime(level*voice.peak,when); gain.linearRampToValueAtTime(0,when+duration);
-    if(voice.resonator)voice.resonator.stop(voice.stopAt);
+    if(voice.engine)voice.engine.stop(voice.stopAt);
     else try { voice.carrier.stop(voice.stopAt); voice.modulator.stop(voice.stopAt); } catch {}
   }
 
@@ -480,7 +482,7 @@ export class CollectionAudio {
   _destroyVoice(voice) {
     if (!voice || voice.disposed) return;
     voice.disposed = true; voice.carrier.onended = null;
-    if(voice.resonator)voice.resonator.dispose();
+    if(voice.engine)voice.engine.dispose();
     else{try { voice.carrier.stop(); } catch {}
       try { voice.modulator.stop(); } catch {}}
     for (const node of voice.nodes) try { node.disconnect(); } catch {}
