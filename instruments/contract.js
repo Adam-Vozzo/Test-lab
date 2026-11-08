@@ -1,11 +1,11 @@
 /** Collection module contract. Each instrument exports `definition` and `mount`.
  *
  * definition = {
- *   id:'carrier', name:'Carrier / Modulator', batch:1,
- *   theme:{bg:'#f1eee5',fg:'#292827',accent:'#ec6855',muted:'#77736c'},
- *   defaultSound:{waveform:'sine',attack:.02,release:.6,cutoff:6000,ratio:2,index:1},
+ *   id:'relay', name:'Relay / Resonator', commonSoundControls:false, keyboardNotes:true,
+ *   theme:{bg:'#090c0e',fg:'#d5d9d6',accent:'#ff7249',muted:'#85908f'},
+ *   defaultSound:{waveform:'resonator',material:.32,attack:.006,release:1.8,cutoff:10000},
  *   defaultAppearance:{density:1},
- *   soundControls:[{key:'ratio',label:'Modulator ratio',min:.25,max:8,step:.25,unit:'×',section:'Modulation',description:'Frequency relative to the carrier.'}],
+ *   soundControls:[{key:'material',label:'Material',min:0,max:1,step:.01,section:'Resonator',description:'From harmonic strings to inharmonic metal modes.'}],
  *   appearanceControls:[{key:'density',label:'Guide density',min:.5,max:2,step:.1,section:'Guides',description:'Spacing of the radial guide dots.'}],
  * };
  * Controls default to kind:'range'. Other kinds: select (options:[[value,label]]),
@@ -31,6 +31,8 @@
  * cycling; explicit preset selections keep undo history.
  * definition.commonSoundControls=false hides the standard oscillator/ADSR
  * controls for engines such as granular; supply actual custom controls instead.
+ * Set keyboardNotes:true to retain the shared A–K note keyboard with a custom
+ * voice mode. Otherwise commonSoundControls:false also opts out of that keyboard.
  * `api.audio.snapshot()` = {time,rms,step,voices:[{id,midi,level,gate}],waveform,frequency}.
  * `api.audio.pulse(id,midi,options,when,duration)` schedules a bounded note.
  * options include waveform,attack,decay,sustain,release,cutoff,resonance,

@@ -37,7 +37,7 @@ async def run(base,gpu=False):
             page=await context.new_page();errors=[];page.on('pageerror',lambda error:errors.append(str(error)));report={'gpu':gpu}
             async def loaded(id):
                 await page.wait_for_function("id=>window.__host?.currentId===id&&!document.querySelector('#stage').hasAttribute('aria-busy')&&!document.querySelector('.load-error')",arg=id)
-            await page.goto(base+'/collection.html#carrier');await loaded('carrier')
+            await page.goto(base+'/collection.html#cellular');await loaded('cellular')
             ids=await page.evaluate("import('./instruments/catalog.js').then(m=>m.INSTRUMENTS.filter(i=>i.load).map(i=>i.id))")
             print('host loaded',flush=True)
             canvas=page.locator('canvas[role=application]').first;canvas_bounds=await canvas.bounding_box();px=canvas_bounds['x']+canvas_bounds['width']*.2;py=canvas_bounds['y']+canvas_bounds['height']*.3
@@ -58,10 +58,10 @@ async def run(base,gpu=False):
             # Async route replacement must save the outgoing state only once.
             await page.evaluate("__host.state.bpm=139")
             async def delayed(route):await asyncio.sleep(.3);await route.continue_()
-            await context.route('**/instruments/cellular.js',delayed)
-            await page.evaluate("__host.loadInstrument('cellular');__host.loadInstrument('census')");await loaded('census')
-            assert await page.evaluate("JSON.parse(localStorage.getItem('duo.instrument.carrier.v1')).bpm")==139
-            await page.evaluate("location.hash='carrier'");await loaded('carrier');assert await page.evaluate('__host.state.bpm')==139
+            await context.route('**/instruments/graticule.js',delayed)
+            await page.evaluate("__host.loadInstrument('graticule');__host.loadInstrument('census')");await loaded('census')
+            assert await page.evaluate("JSON.parse(localStorage.getItem('duo.instrument.cellular.v1')).bpm")==139
+            await page.evaluate("location.hash='cellular'");await loaded('cellular');assert await page.evaluate('__host.state.bpm')==139
             report['rapidSwitchPersistence']=True;print('switching passed',flush=True)
             # Shared settings participate in named presets, undo, export/import and reload.
             await page.locator('#appearance-toggle').click();await page.locator('[data-tabs=appearance] [data-group=Layout]').click()
@@ -72,9 +72,9 @@ async def run(base,gpu=False):
             await page.locator('#undo-look').click();assert await slider.input_value()=='63'
             await page.locator('#appearance-preset').select_option('reference');await page.locator('#appearance-preset').select_option('0');assert await slider.input_value()=='63'
             async with page.expect_download() as download:await page.locator('#export-look').click()
-            export=OUT/'carrier-settings.json';await (await download.value).save_as(export)
-            await page.locator('#reset-look').click();await page.locator('#import-look').set_input_files(export);await page.wait_for_function("JSON.parse(localStorage.getItem('duo.instrument.carrier.v1')).appearance.leftWidth===63");assert await slider.input_value()=='63'
-            await page.reload();await loaded('carrier');assert await page.evaluate('__host.state.appearance.leftWidth')==63
+            export=OUT/'cellular-settings.json';await (await download.value).save_as(export)
+            await page.locator('#reset-look').click();await page.locator('#import-look').set_input_files(export);await page.wait_for_function("JSON.parse(localStorage.getItem('duo.instrument.cellular.v1')).appearance.leftWidth===63");assert await slider.input_value()=='63'
+            await page.reload();await loaded('cellular');assert await page.evaluate('__host.state.appearance.leftWidth')==63
             report['sharedPresetRoundTrip']=True;print('presets passed',flush=True)
             # Independent floating panels coexist and can be repositioned.
             if await page.locator('#appearance').is_hidden():await page.locator('#appearance-toggle').click()

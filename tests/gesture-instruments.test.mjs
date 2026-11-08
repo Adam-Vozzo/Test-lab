@@ -1,22 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {blobPitch,arcSound,synthesisBlob,carrierAnimationPhases,definition as carrier} from '../instruments/carrier.js';
 import {sonarGeometry,starsCrossed,starPitch,lissajousPoint,radarWaveZoom,starDraggedOutside,definition as graticule} from '../instruments/graticule.js';
 import {lifeStep,contactGather,lifeModulation,lifeCellMotion,definition as cellular} from '../instruments/cellular.js';
 import {phasePoint,definition as phaseVolume} from '../instruments/phase-volume.js';
 import {splitLayout} from '../instrument-layout.js';
 const TAU=Math.PI*2;
 
-test('blob positions address seven scale degrees and three octaves independently',()=>{
- for(let degree=0;degree<7;degree++)for(let octave=-1;octave<=1;octave++){
-  const p=blobPitch(1-(degree+.5)/7,1-(octave+1.5)/3);assert.deepEqual(p,{degree,octave});
- }
- assert.deepEqual(blobPitch(-10,10),{degree:6,octave:-1});
-});
-test('path arcs have bounded, audible filter and FM mappings',()=>{
- const low=arcSound(0,0),high=arcSound(0,1);assert.equal(low.cutoff,160);assert.equal(high.cutoff,16000);assert.ok(high.resonance>low.resonance);assert.equal(arcSound(1,0).index,0);assert.equal(arcSound(1,1).index,6);assert.deepEqual(arcSound(1,9),arcSound(1,1));
- const keys=new Set();for(let i=0;i<8;i++){const a=synthesisBlob(i,0),b=synthesisBlob(i,1),key=Object.keys(a)[0];keys.add(key);assert.ok(b[key]>a[key]);}assert.equal(keys.size,8);
-});
 test('Conway Life preserves a block, oscillates a blinker and wraps the field',()=>{
  const board=new Uint8Array(25);for(const i of[6,7,11,12])board[i]=1;const still=lifeStep(board,5,5);assert.deepEqual(still.cells,board);assert.deepEqual(still.births,[]);
  const blink=new Uint8Array(25);for(const i of[11,12,13])blink[i]=1;const next=lifeStep(blink,5,5);assert.deepEqual([...next.cells.keys()].filter(i=>next.cells[i]),[7,12,17]);assert.deepEqual(lifeStep(next.cells,5,5).cells,blink);
@@ -47,25 +36,10 @@ test('retained Phase Volume oscillator samples remain bounded at discontinuities
  const squares=[],saws=[];for(const waveform of['sine','triangle','sawtooth','square'])for(const ratio of[.25,1.5,8])for(let i=0;i<200;i++){const p=phasePoint(i/199*TAU,ratio,3,waveform);for(const value of Object.values(p))assert.ok(Number.isFinite(value)&&Math.abs(value)<=1.001);if(ratio===1.5&&waveform==='square')squares.push(p.carrier);if(ratio===1.5&&waveform==='sawtooth')saws.push(p.carrier);}assert.ok(squares.filter(x=>Math.abs(x)>.8).length>saws.filter(x=>Math.abs(x)>.8).length*2);
 });
 test('gesture instruments and retained Phase Volume declare valid controls and defaults',()=>{
- for(const d of[carrier,cellular,graticule,phaseVolume])for(const[controls,defaults]of[[d.appearanceControls,d.defaultAppearance],[d.soundControls,d.defaultSound]]){const keys=new Set();for(const c of controls){assert.ok(!keys.has(c.key),`${d.id} duplicate ${c.key}`);keys.add(c.key);assert.ok(c.section&&c.description.length>15);assert.ok(Object.hasOwn(defaults,c.key),`${d.id} missing ${c.key}`);if(!c.kind||c.kind==='range'){assert.ok(Number.isFinite(defaults[c.key]));assert.ok(defaults[c.key]>=c.min&&defaults[c.key]<=c.max,`${d.id} invalid default ${c.key}`);}}}
+ for(const d of[cellular,graticule,phaseVolume])for(const[controls,defaults]of[[d.appearanceControls,d.defaultAppearance],[d.soundControls,d.defaultSound]]){const keys=new Set();for(const c of controls){assert.ok(!keys.has(c.key),`${d.id} duplicate ${c.key}`);keys.add(c.key);assert.ok(c.section&&c.description.length>15);assert.ok(Object.hasOwn(defaults,c.key),`${d.id} missing ${c.key}`);if(!c.kind||c.kind==='range'){assert.ok(Number.isFinite(defaults[c.key]));assert.ok(defaults[c.key]>=c.min&&defaults[c.key]<=c.max,`${d.id} invalid default ${c.key}`);}}}
 });
 
 test('sonar removal distinguishes a deliberately dragged-out star from boundary jitter',()=>{const g={x:120,y:90,r:80};assert.equal(starDraggedOutside(200,90,g),false);assert.equal(starDraggedOutside(207,90,g),true);assert.equal(starDraggedOutside(120,2,g),true);assert.ok(radarWaveZoom('sine')<radarWaveZoom('square'));assert.ok(radarWaveZoom('triangle')>radarWaveZoom('sawtooth'));});
-
-
-test('Carrier animation phases retain both frequencies through multi-day sessions',()=>{
-  const tau=Math.PI*2;
-  for(const time of[0,60,65504,86400,604800,31536000]){
-    const phases=carrierAnimationPhases(time);
-    for(let i=0;i<2;i++){
-      assert.ok(Number.isFinite(phases[i])&&phases[i]>=0&&phases[i]<tau);
-      assert.ok(Math.abs(Math.sin(phases[i])-Math.sin(time*[.13,.2][i]))<1e-9);
-    }
-    const next=carrierAnimationPhases(time+1/60);
-    for(let i=0;i<2;i++)assert.ok(Math.abs(((next[i]-phases[i]+tau)%tau)-[.13,.2][i]/60)<1e-9);
-  }
-  for(const invalid of[NaN,Infinity,-Infinity])assert.deepEqual(carrierAnimationPhases(invalid),[0,0]);
-});
 
 
 test('idle Life cells move independently without relying on the generation or audio clock',()=>{

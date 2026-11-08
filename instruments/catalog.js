@@ -1,6 +1,6 @@
 export const INSTRUMENTS=[
   {id:'signal',name:'Signal',batch:0,description:'Filter galaxy · voice ring',colors:['#e83b77','#79d9ff'],href:'./index.html'},
-  {id:'carrier',name:'Carrier / Modulator',batch:1,description:'Two-hand frequency modulation',colors:['#ef785d','#8372d6'],load:()=>import('./carrier.js')},
+  {id:'relay',name:'Relay / Resonator',description:'Plucked metal · modal resonance',colors:['#ff7249','#88b9c8'],load:()=>import('./relay.js')},
   {id:'cellular',name:'Cellular / Automata',batch:1,description:'Contact assembly · cellular automaton',colors:['#85e4ee','#9d293c'],load:()=>import('./cellular.js')},
   {id:'census',name:'Cell Census',batch:1,description:'Scan routing · spectrum · EQ',colors:['#d8ff23','#ff568f'],load:()=>import('./census.js')},
   {id:'swarm',name:'Machine / Swarm',batch:2,description:'Pitch lanes · gesture flow',colors:['#e6ce6a','#a29afa'],load:()=>import('./swarm.js')},
@@ -14,3 +14,7 @@ export const INSTRUMENTS=[
   {id:'phase-volume',name:'Phase Volume',batch:4,description:'Delayed oscillator slices · point volume',colors:['#8eb9ff','#434b9c'],load:()=>import('./phase-volume.js')},
   {id:'milkdrop',name:'MilkDrop',description:'Audio-reactive feedback · touch synthesis',colors:['#62efd9','#c180ff'],load:()=>import('./milkdrop.js')},
 ];
+
+// Old home-screen links select the replacement without importing its retired
+// parameter schema or overwriting the user's archived Carrier session.
+export const resolveInstrumentId=id=>id==='carrier'?'relay':id;

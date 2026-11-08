@@ -1,4 +1,4 @@
-import {INSTRUMENTS} from './instruments/catalog.js';
+import {INSTRUMENTS,resolveInstrumentId} from './instruments/catalog.js';
 import {APPEARANCE_REVISION,SOUND_REVISION,migrateAppearance,migrateSound,preserveStudySessions} from './instruments/appearance-migration.js';
 import {clamp,noteName} from './instruments/kit.js';
 import {CollectionAudio} from './collection-audio.js';
@@ -124,6 +124,7 @@ const pwa=setupPWA({isPlaying:()=>{const snapshot=audio.snapshot();return state.
 const secondary=enableSecondaryButtonTaps();
 
 async function loadInstrument(id){
+  id=resolveInstrumentId(id);
   const entry=INSTRUMENTS.find(item=>item.id===id&&item.load)||INSTRUMENTS[1];const token=++loadToken;
   saveNow();panic();controller?.destroy?.();controller=null;visualEffects?.destroy();visualEffects=null;definition=null;stage.replaceChildren();stage.setAttribute('aria-busy','true');setStatus('Loading');closeDisclosure('collection-menu');$('play').disabled=true;document.querySelectorAll('.settings-panel').forEach(panel=>panel.inert=true);
   try{
@@ -182,7 +183,7 @@ function syncFullscreen(){$('fullscreen').hidden=!pwa.canFullscreen;$('fullscree
 $('fullscreen').addEventListener('click',()=>pwa.toggleFullscreen());window.addEventListener('duo:pwa',syncFullscreen);syncFullscreen();
 document.addEventListener('keydown',event=>{if(!['Shift','Control','Alt','Meta'].includes(event.key))document.documentElement.dataset.inputModality='keyboard';},{capture:true});
 const musicalKeys='asdfghjk';
-document.addEventListener('keydown',e=>{if(e.defaultPrevented||e.ctrlKey||e.metaKey||e.altKey||e.target.closest('input,select,textarea,[contenteditable=true]'))return;if(e.key==='Escape'){if(!$('collection-menu').hidden){closeDisclosure('collection-menu',true);return;}if(!$('performance-popover').hidden){closeDisclosure('performance-popover',true);return;}if(panels.closeActive(true))return;panic();return;}if(e.code==='Space'){if(e.target.closest('button,a,summary'))return;e.preventDefault();if(!e.repeat)togglePlay();return;}const degree=musicalKeys.indexOf(e.key.toLowerCase());if(degree<0||e.repeat||!controller||definition?.commonSoundControls===false)return;e.preventDefault();keys.add(e.key.toLowerCase());audio.start();audio.noteOn('key-'+e.key.toLowerCase(),quantize(degree),state.sound);});
+document.addEventListener('keydown',e=>{if(e.defaultPrevented||e.ctrlKey||e.metaKey||e.altKey||e.target.closest('input,select,textarea,[contenteditable=true]'))return;if(e.key==='Escape'){if(!$('collection-menu').hidden){closeDisclosure('collection-menu',true);return;}if(!$('performance-popover').hidden){closeDisclosure('performance-popover',true);return;}if(panels.closeActive(true))return;panic();return;}if(e.code==='Space'){if(e.target.closest('button,a,summary'))return;e.preventDefault();if(!e.repeat)togglePlay();return;}const degree=musicalKeys.indexOf(e.key.toLowerCase());if(degree<0||e.repeat||!controller||(definition?.commonSoundControls===false&&!definition?.keyboardNotes))return;e.preventDefault();keys.add(e.key.toLowerCase());audio.start();audio.noteOn('key-'+e.key.toLowerCase(),quantize(degree),state.sound);});
 document.addEventListener('keyup',e=>{const key=e.key.toLowerCase();if(keys.delete(key))audio.noteOff('key-'+key);});
 window.addEventListener('hashchange',()=>loadInstrument(location.hash.slice(1)));window.addEventListener('resize',()=>controller?.resize?.());
 document.addEventListener('visibilitychange',()=>{if(document.hidden){panic();saveNow();}});window.addEventListener('blur',()=>panic());
@@ -190,4 +191,4 @@ window.addEventListener('pagehide',()=>{saveNow();panic();});
 window.addEventListener('beforeunload',()=>{cancelAnimationFrame(raf);controller?.destroy?.();audio.dispose();pwa.destroy();tempo.destroy();secondary();rangeScrubbing();releaseViewport();visualEffects?.destroy();});
 function frame(ms){raf=requestAnimationFrame(frame);const t=ms/1000,dt=clamp(t-(lastTime||t),0,.05);lastTime=t;if(document.hidden)return;try{controller?.frame?.(t,dt);}catch(error){console.error(error);controller?.destroy?.();controller=null;panic();toast('Instrument renderer stopped. Switch instruments to reload.');}if(t-lastSync>.15){lastSync=t;if(!$('sound-popover').hidden)syncControls('sound');if(!$('appearance').hidden)syncControls('appearance');}}
 try{preserveStudySessions(localStorage);}catch{}
-refreshLibrary();let initial=location.hash.slice(1);if(!initial)try{initial=localStorage.getItem('duo.collection.current')||'carrier';}catch{initial='carrier';}loadInstrument(initial);raf=requestAnimationFrame(frame);
+refreshLibrary();let initial=location.hash.slice(1);if(!initial)try{initial=localStorage.getItem('duo.collection.current')||'relay';}catch{initial='relay';}loadInstrument(initial);raf=requestAnimationFrame(frame);

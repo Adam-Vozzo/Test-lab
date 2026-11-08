@@ -1,4 +1,4 @@
-"""Native gesture/audio regressions for Carrier, Cellular and Graticule.
+"""Native gesture/audio regressions for Cellular and Graticule.
 Start a preview with `npm start`, then run:
 PREVIEW_URL=http://127.0.0.1:4173 python tests/gesture-instruments.browser.py
 CHROMIUM_PATH optionally selects a local browser; otherwise Chromium/Chrome
@@ -38,7 +38,7 @@ async def main():
             await context.route('**/instruments/graticule.js',radar_probe)
             await context.add_init_script('''window.__invalidCanvasRects=[];const original=CanvasRenderingContext2D.prototype.rect;CanvasRenderingContext2D.prototype.rect=function(...args){if(args.some(x=>!Number.isFinite(x)))__invalidCanvasRects.push(args.map(String));return original.apply(this,args);};''')
             page=await context.new_page();errors=[];page.on('pageerror',lambda error:errors.append(str(error)));shader_errors=[];page.on('console',lambda message:shader_errors.append(message.text) if 'Shader Error' in message.text else None)
-            await page.goto(os.environ.get('PREVIEW_URL','http://127.0.0.1:4173')+'/collection.html#carrier',wait_until='load')
+            await page.goto(os.environ.get('PREVIEW_URL','http://127.0.0.1:4173')+'/collection.html#cellular',wait_until='load')
             async def switch(name):
                 await page.evaluate('(id)=>location.hash=id',name)
                 await page.wait_for_function('(id)=>window.__gestureQA?.currentId===id&&!document.querySelector("#stage").hasAttribute("aria-busy")',arg=name)
@@ -48,23 +48,8 @@ async def main():
             async def snapshot():
                 return await page.evaluate('({rms:__gestureQA.audio.snapshot().rms,voices:__gestureQA.audio.snapshot().voices.length,sources:__gestureQA.audio.sources.size,sound:{...__gestureQA.state.sound},data:__gestureQA.controller.getData?.()})')
             results={}
-            await switch('carrier');p=await panes();left=p['left'];before=await snapshot()
-            await page.mouse.move(left['x']+left['w']*.32,left['y']+left['h']*.4);await page.mouse.down();await page.mouse.move(left['x']+left['w']*.44,left['y']+left['h']*.26,steps=8);await page.wait_for_timeout(300);during=await snapshot();await page.mouse.up()
-            assert during['sources']>=1 and during['rms']>0,'Carrier contact did not reach audio output'
-            assert during['data']!=before['data'],'Carrier gesture did not edit its note/path model'
-            baseline=(await snapshot())['sound'];right=p['right'];cdp=await context.new_cdp_session(page)
+            cdp=await context.new_cdp_session(page)
             def touch(identifier,x,y):return {'id':identifier,'x':x,'y':y,'radiusX':5,'radiusY':5,'force':1}
-            x=right['x']+right['w']*.38;y=right['y']+right['h']*.49
-            await cdp.send('Input.dispatchTouchEvent',{'type':'touchStart','touchPoints':[touch(1,x,y)]})
-            await cdp.send('Input.dispatchTouchEvent',{'type':'touchStart','touchPoints':[touch(1,x,y),touch(2,x+55,y+35)]})
-            await cdp.send('Input.dispatchTouchEvent',{'type':'touchMove','touchPoints':[touch(1,x-25,y-15),touch(2,x+110,y+65)]})
-            await page.wait_for_timeout(120);pinched=(await snapshot())['sound']
-            await cdp.send('Input.dispatchTouchEvent',{'type':'touchEnd','touchPoints':[]})
-            assert abs(pinched['cutoff']-baseline['cutoff'])<1e-6,'Pinch retained an unrelated first-finger cutoff edit'
-            assert abs(pinched['ratio']-baseline['ratio'])<1e-6,'Pinch retained an unrelated first-finger ratio edit'
-            assert pinched['index']>baseline['index'],'Pinch did not alter FM depth'
-            results['carrier']={'contact_rms':during['rms'],'pinch_index':[baseline['index'],pinched['index']]}
-            await page.screenshot(path=str(OUT/'carrier-blob-gesture.png'))
 
             await switch('cellular');p=await panes();left=p['left'];await page.wait_for_function('window.__cellPool?.count>300');idle_pool=await page.evaluate('__cellPool');paused_before=await snapshot()
             async def idle_pixels(time,baseline=False):
@@ -106,7 +91,7 @@ async def main():
             await page.set_viewport_size({'width':844,'height':390});await page.wait_for_timeout(300);await page.screenshot(path=str(OUT/'graticule-compact.png'))
             results['graticule']={'stars':len(playing['data']['stars']),'pair':pair,'sonar_voices':sonar,'deleted_stars':len(deleted['data']['stars']),'wave_radii':[sine_r,triangle_r]}
             canceled=[]
-            for name in ['carrier','cellular','graticule']:
+            for name in ['cellular','graticule']:
                 await switch(name)
                 if await page.evaluate('__gestureQA.state.playing'):await page.locator('#play').click()
                 if not await page.evaluate('__gestureQA.state.hold'):await page.locator('#hold').click()

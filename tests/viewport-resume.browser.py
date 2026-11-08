@@ -23,7 +23,7 @@ async def run(base):
   browser=await p.chromium.launch(executable_path='/usr/bin/chromium',headless=True,args=['--no-sandbox','--disable-webgl','--disable-dev-shm-usage'])
   try:
    for installed in [True,False]:
-    for path in ['collection.html#carrier','index.html']:
+    for path in ['collection.html#relay','index.html']:
      context=await browser.new_context(viewport={'width':1280,'height':900},has_touch=True,is_mobile=True,device_scale_factor=1,service_workers='block');await context.add_init_script('('+INIT+')('+str(installed).lower()+')');page=await context.new_page();errors=[];page.on('pageerror',lambda e:errors.append(str(e)));await page.goto(base+'/'+path);await page.wait_for_selector('#play');await settle(page,400);cdp=await context.new_cdp_session(page);case={'route':path,'installed':installed,'cycles':[],'initial':await page.evaluate(SNAP)}
      for height in [780,720,660,600]:
       await page.evaluate('__resume',height);await settle(page);case['cycles'].append(await page.evaluate(SNAP))

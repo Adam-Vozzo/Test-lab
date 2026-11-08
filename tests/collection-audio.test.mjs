@@ -245,3 +245,27 @@ test('output priming occurs synchronously before gesture resume and remains boun
  assert.equal(f.toneStarts,1);assert.equal(f.audio._primerSources.size,1);assert.equal([...f.audio._primerSources][0].started,0);assert.equal([...f.audio._primerSources][0].buffer.length,1);
  const second=f.audio.start(),third=f.audio.start();assert.equal(f.audio._primerSources.size,2);const disposed=f.audio.dispose();assert.equal(f.audio._primerSources.size,0);await disposed;assert.deepEqual(await Promise.all([first,second,third]),[false,false,false]);
 });
+
+test('Relay routes a bounded modal bank through the common output and preserves live contact identity',async()=>{
+ const f=fixture({maxVoices:4});await f.audio.start();f.audio.configure({waveform:'resonator',material:.32,damping:.38,brightness:.58,strike:.28,excitation:.22,gain:.78});
+ f.audio.noteOn('tine',60);const v=f.audio._voices[0];assert.ok(v.resonator);assert.equal(v.modulator,null);assert.equal(v.resonator.modes.length,6);
+ assert.deepEqual(v.resonator.output.connections,[v.filter]);assert.deepEqual(v.pan.connections,[f.audio.output]);
+ assert.equal(v.nodes.length,17);assert.ok(v.resonator.modes.every(m=>m.oscillator.started===1));
+ f.advance(.2);f.audio.noteUpdate('tine',64,{material:.9,damping:.7,excitation:.6,pan:.5});
+ assert.strictEqual(f.audio._voices[0],v);assert.equal(v.midi,64);assert.equal(v.pan.pan.value,.5);
+ assert.equal(v.resonator.modes[0].oscillator.frequency.value,midiFrequency(64));
+ for(let i=0;i<24;i++)f.audio.noteOn('latched-'+i,48+i);
+ assert.equal(f.audio._voices.length,4);assert.equal(f.audio.sources.size,4);assert.ok(v.disposed);assert.ok(v.nodes.every(n=>n.disconnected));
+ const remaining=[...f.audio._voices];await f.audio.dispose();assert.ok(remaining.every(v=>v.nodes.every(n=>n.disconnected)));
+});
+
+test('Relay supports Hold, independent arp provenance, cancelled future notes and scheduled modal release',async()=>{
+ const f=fixture();await f.audio.start();f.audio.configure({waveform:'resonator',release:.08});f.audio.setPerformance({hold:true});
+ f.audio.noteOn('a',60);f.audio.noteOff('a');assert.equal(f.audio.sources.get('a').physical,false);assert.equal(f.audio.snapshot().voices[0].gate,true);
+ f.audio.setPerformance({arp:true,bpm:220,arpRate:32});f.audio.noteOn('b',67);f.audio.noteOff('b');f.advance(.06);
+ assert.ok(f.audio._voices.some(v=>v.kind==='arp'&&v.resonator));assert.ok(f.audio._voices.some(v=>v.start>f.now));
+ f.audio.noteOff('a',{force:true});assert.equal(f.audio._voices.some(v=>v.id==='a'&&v.start>f.now),false);assert.ok(f.audio.sources.has('b'));
+ f.audio.setPerformance({hold:false});f.advance(.3);assert.equal(f.audio.sources.size,0);assert.equal(f.audio._voices.length,0);
+ const pulse=f.audio.pulse('scheduled',72,{release:.1},f.now+.2,.1);assert.ok(pulse.resonator.modes.every(m=>m.oscillator.stopped===pulse.stopAt));
+ assert.equal(f.audio.snapshot().voices.length,0);f.advance(.24);assert.equal(f.audio.snapshot().voices[0].id,'scheduled');f.advance(.25);assert.equal(f.audio._voices.length,0);await f.audio.dispose();
+});

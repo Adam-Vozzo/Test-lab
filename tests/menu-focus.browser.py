@@ -18,7 +18,7 @@ async def run(base):
  async with async_playwright() as p:
   browser=await p.chromium.launch(executable_path=shutil.which('chromium'),headless=True,args=['--no-sandbox','--disable-webgl','--disable-dev-shm-usage','--autoplay-policy=user-gesture-required'])
   try:
-   for route in ['index.html','collection.html#carrier']:
+   for route in ['index.html','collection.html#relay']:
     for modality in ['mouse','touch','keyboard']:
      context=await browser.new_context(viewport={'width':1180,'height':820},has_touch=True,service_workers='block');page=await context.new_page();errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
      if BASELINE:
@@ -76,7 +76,7 @@ async def run(base):
     # The special secondary-finger path calls button.click() during pointerup.
     # It must also land on a neutral header and suppress the duplicate click.
     report['secondaryTouch']=[]
-    for route,width,height in [(route,w,h) for route in ['index.html','collection.html#carrier'] for w,h in [(844,390),(390,844)]]:
+    for route,width,height in [(route,w,h) for route in ['index.html','collection.html#relay'] for w,h in [(844,390),(390,844)]]:
      context=await browser.new_context(viewport={'width':width,'height':height},has_touch=True,service_workers='block');page=await context.new_page();await page.goto(base+'/'+route);await page.wait_for_selector('#play');await page.wait_for_timeout(180);await page.evaluate('() => {'+PROBE+'}');cdp=await context.new_cdp_session(page)
      stage=await page.locator('.workspace' if route=='index.html' else '#stage').bounding_box();held={'id':1,'x':stage['x']+stage['width']*.2,'y':stage['y']+stage['height']*.35};button=await page.locator('#appearance-toggle').bounding_box();tap={'id':2,'x':button['x']+button['width']/2,'y':button['y']+button['height']/2}
      await page.evaluate("window.__pointerLog=[];for(const type of ['pointerdown','pointerup'])document.addEventListener(type,e=>__pointerLog.push({type,id:e.pointerId,primary:e.isPrimary}),true)");await cdp.send('Input.dispatchTouchEvent',{'type':'touchStart','touchPoints':[held]});await cdp.send('Input.dispatchTouchEvent',{'type':'touchStart','touchPoints':[held,tap]});await cdp.send('Input.dispatchTouchEvent',{'type':'touchEnd','touchPoints':[tap]});await page.wait_for_timeout(300)

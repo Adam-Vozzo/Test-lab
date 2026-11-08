@@ -304,8 +304,8 @@ async def run(base):
             }""")
             # Write only after leaving MilkDrop, because navigation correctly
             # saves the previous controller's data before loading a new route.
-            await page.evaluate("location.hash='carrier'")
-            await loaded('carrier')
+            await page.evaluate("location.hash='relay'")
+            await loaded('relay')
             await page.evaluate("value=>{localStorage.setItem('duo.instrument.milkdrop.v1',value);location.hash='milkdrop';}", invalid)
             await loaded()
             sanitized = await page.evaluate("""() => {
@@ -336,8 +336,8 @@ async def run(base):
             await source_count(0)
             assert not await page.evaluate('__milkdropHost.state.playing || __milkdropHost.state.hold')
             for _ in range(2):
-                await page.evaluate("location.hash='carrier'")
-                await loaded('carrier')
+                await page.evaluate("location.hash='relay'")
+                await loaded('relay')
                 assert await page.locator('.milkdrop-root').count() == 0
                 await page.evaluate("location.hash='milkdrop'")
                 await loaded()
