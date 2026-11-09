@@ -31,6 +31,32 @@ SCRIPT=r'''async()=>{
  const paint=(appearance=v,time=0,reduced=true,reveal=1)=>{r.draw(appearance,time,camera,energy,reveal,reduced);return c.getImageData(0,0,canvas.width,canvas.height).data;};
  const diff=(a,b)=>{let n=0;for(let i=0;i<a.length;i+=4)if(a[i]!==b[i]||a[i+1]!==b[i+1]||a[i+2]!==b[i+2]||a[i+3]!==b[i+3])n++;return n/(a.length/4);};
  const stats=p=>{let sum=0,lit=0;for(let i=0;i<p.length;i+=4){sum+=(p[i]+p[i+1]+p[i+2])*p[i+3]/255;if(Math.max(p[i],p[i+1],p[i+2])*p[i+3]/255>25)lit++;}return{sum,lit};};
+ // Read the exact source/destination rectangles used for rendered glyphs,
+ // then inspect their opaque cores at CSS-pixel scale. A mode flag or a pixel
+ // difference alone cannot catch ASCII that has collapsed into tiny dots.
+ const glyphCapture=appearance=>{
+  const drawImage=c.drawImage.bind(c),marks=[];
+  c.drawImage=(image,...args)=>{if(image===r.atlas&&args.length===8)marks.push({source:args.slice(0,4),destination:args.slice(4),smoothing:c.imageSmoothingEnabled});return drawImage(image,...args);};
+  let pixels;try{pixels=paint(appearance);}finally{c.drawImage=drawImage;}
+  const tile=document.createElement('canvas');tile.width=tile.height=64;const tc=tile.getContext('2d',{willReadFrequently:true}),seen=new Set(),glyphs=[];
+  for(const mark of marks){const [sx,sy,sw,sh]=mark.source,[dx,dy,dw,dh]=mark.destination,key=sx+':'+sy;if(seen.has(key))continue;seen.add(key);
+   tc.clearRect(0,0,64,64);tc.imageSmoothingEnabled=mark.smoothing;tc.drawImage(r.atlas,sx,sy,sw,sh,32-dw/2,32-dh/2,dw,dh);
+   const p=tc.getImageData(0,0,64,64).data,alphaMax=Math.max(...Array.from({length:4096},(_,i)=>p[i*4+3]));
+   if(!alphaMax)continue;let left=64,top=64,right=-1,bottom=-1,ink=0;const mask=new Uint8Array(4096);
+   for(let i=0;i<4096;i++)if(p[i*4+3]>=alphaMax*.55){const x=i%64,y=Math.floor(i/64);mask[i]=1;ink++;left=Math.min(left,x);right=Math.max(right,x);top=Math.min(top,y);bottom=Math.max(bottom,y);}
+   const rows=[];for(let y=top;y<=bottom;y++)rows.push(Array.from(mask.slice(y*64+left,y*64+right+1)).join(''));
+   glyphs.push({character:Math.round(sx/sw),height:bottom-top+1,width:right-left+1,rowPatterns:new Set(rows).size,ink,occupancy:ink/((right-left+1)*(bottom-top+1)),stamp:[dw,dh]});
+  }
+  return{marks:marks.length,glyphs,pixels,grid:[r.field.width,r.field.height]};
+ };
+ canvas.width=816;canvas.height=327;r.resize(816,327,1);
+ const asciiCapture=glyphCapture({...v,glyphStyle:'ascii'}),dotsCapture=glyphCapture({...v,glyphStyle:'dots'});
+ const readable=glyphs=>[...new Set(glyphs.filter(g=>g.height>=6&&g.width>=3&&g.rowPatterns>=3&&g.occupancy<.86).map(g=>g.character))];
+ const structured=glyphs=>[...new Set(glyphs.filter(g=>g.height>=3&&g.width>=2&&g.rowPatterns>=2&&g.occupancy<.9).map(g=>g.character))];
+ const asciiDotDifference=diff(asciiCapture.pixels,dotsCapture.pixels),densityCaptures=[];
+ for(const density of [.45,1.6]){const capture=glyphCapture({...v,glyphStyle:'ascii',glyphDensity:density});densityCaptures.push({density,marks:capture.marks,grid:capture.grid,readableCharacters:readable(capture.glyphs),structuredCharacters:structured(capture.glyphs)});}
+ const glyphReadability={size:[816,327],asciiMarks:asciiCapture.marks,dotMarks:dotsCapture.marks,asciiDotDifference,readableCharacters:readable(asciiCapture.glyphs),asciiGlyphs:asciiCapture.glyphs,dotGlyphs:dotsCapture.glyphs,densityCaptures};
+ canvas.width=720;canvas.height=900;r.resize(720,900,1);
  const stillA=paint(),stillB=paint(v,43,true),reducedDifference=diff(stillA,stillB);
  const animatedA=paint(v,0,false),animatedB=paint(v,2.7,false),ambientDifference=diff(animatedA,animatedB);
  const start=stats(paint(v,0,true,.01)),grown=stats(paint(v,0,true,1));
@@ -49,8 +75,8 @@ SCRIPT=r'''async()=>{
  // Shed glyphs retain world-space positions through camera changes, then expire.
  paint(v,0,false);const petal=r.hitPoints[0].petal;r.emitPetal(petal,0,1);const emitted=r.fragments.length;
  const finiteFragments=r.fragments.every(f=>[f.x,f.y,f.z,f.vx,f.vy,f.vz].every(Number.isFinite));
- c.clearRect(0,0,720,900);r.drawFragments(.5,v,false,r.step);const fragmentA=c.getImageData(0,0,720,900).data;
- r.draw(v,.5,{...camera,yaw:camera.yaw+.7},energy,1,false);c.clearRect(0,0,720,900);r.drawFragments(.5,v,false,r.step);const fragmentB=c.getImageData(0,0,720,900).data;
+ c.clearRect(0,0,720,900);r.drawFragments(.5,v,false,r.glyphPitch);const fragmentA=c.getImageData(0,0,720,900).data;
+ r.draw(v,.5,{...camera,yaw:camera.yaw+.7},energy,1,false);c.clearRect(0,0,720,900);r.drawFragments(.5,v,false,r.glyphPitch);const fragmentB=c.getImageData(0,0,720,900).data;
  const fragmentOrbitDifference=diff(fragmentA,fragmentB);r.draw(v,3,camera,energy,1,false);const expired=r.fragments.length===0;
  r.emitPetal(petal,3,1);r.draw(v,3.1,camera,energy,1,true);const reducedFragments=r.fragments.length===0;
  // Overview framing and close inspection have different contracts: cropping
@@ -134,7 +160,7 @@ SCRIPT=r'''async()=>{
  }
  const backing=[r.atlas,r.field,r.ids,r.glowField];r.dispose();r.dispose();
  const disposed=backing.every(x=>x.width===0&&x.height===0)&&r.faces.length===0&&r.lines.length===0&&r.hitPoints.length===0&&r.interactions.length===0&&r.interactionPoints.length===0&&r.projectedInteractions.length===0&&r.interactionsById.size===0&&r.leafPoses.size===0&&r.flowerPoses.length===0&&r.petalPoses.length===0&&r.stemMotion.angle===0&&r.stemMotion.velocity===0;
- return{reducedDifference,ambientDifference,start,grown,glyphDifference,smallGrid,largeGrid,sparseGrid,denseGrid,noGlow,fullGlow,reused,geometry,frameCost,sizes,resizeDifference,disposed,emitted,finiteFragments,fragmentOrbitDifference,expired,reducedFragments,framing,closeChecks,foliageChecks,strikeFraming,foliageMotion};
+ return{reducedDifference,ambientDifference,start,grown,glyphDifference,smallGrid,largeGrid,sparseGrid,denseGrid,noGlow,fullGlow,reused,geometry,frameCost,sizes,resizeDifference,disposed,emitted,finiteFragments,fragmentOrbitDifference,expired,reducedFragments,framing,closeChecks,foliageChecks,strikeFraming,foliageMotion,glyphReadability};
 }'''
 
 async def run(base):
@@ -148,6 +174,12 @@ async def run(base):
             result=await page.evaluate(SCRIPT)
             result['passed']=False
             (OUT/'renderer-report.json').write_text(json.dumps(result,indent=2))
+            readability=result['glyphReadability']
+            assert readability['asciiMarks']>40 and readability['asciiDotDifference']>.005,readability
+            assert len(readability['readableCharacters'])>=4,readability
+            assert all(len(item['structuredCharacters'])>=3 for item in readability['densityCaptures']),readability
+            assert readability['densityCaptures'][1]['marks']>readability['densityCaptures'][0]['marks']*1.15,readability
+            assert all(g['rowPatterns']<=2 or g['height']<6 for g in readability['dotGlyphs']),readability
             assert result['reducedDifference']==0,result
             assert result['ambientDifference']>.001,result
             assert result['grown']['lit']>result['start']['lit']*4,result

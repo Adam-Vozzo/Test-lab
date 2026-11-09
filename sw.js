@@ -1,7 +1,7 @@
 /* Only DUO's explicit static shell is cached. Account and authentication routes
    are deliberately outside this worker's fetch handling. */
 const CACHE_PREFIX = 'duo-ember-shell-';
-const CACHE_NAME = `${CACHE_PREFIX}20261109-collection-v28`;
+const CACHE_NAME = `${CACHE_PREFIX}20261109-collection-v29`;
 const BASE = new URL('./', self.location.href);
 const ASSETS = [
   'index.html', 'style.css', 'app.js', 'audio.js', 'ring.js',
