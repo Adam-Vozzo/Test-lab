@@ -27,7 +27,7 @@ SCRIPT=r'''async()=>{
  const {definition}=await import('./instruments/roses.js');
  const canvas=document.createElement('canvas');canvas.width=720;canvas.height=900;
  const c=canvas.getContext('2d',{willReadFrequently:true}),r=new RosesRenderer(canvas,{mobile:true});r.resize(720,900,1);
- const v={...definition.defaultAppearance},camera={yaw:-.2,pitch:-.08,zoom:1},energy=new Float32Array(240);
+ const v={...definition.defaultAppearance},camera={yaw:-.2,pitch:-.08,zoom:1},energy=new Float32Array(256);
  const paint=(appearance=v,time=0,reduced=true,reveal=1)=>{r.draw(appearance,time,camera,energy,reveal,reduced);return c.getImageData(0,0,canvas.width,canvas.height).data;};
  const diff=(a,b)=>{let n=0;for(let i=0;i<a.length;i+=4)if(a[i]!==b[i]||a[i+1]!==b[i+1]||a[i+2]!==b[i+2]||a[i+3]!==b[i+3])n++;return n/(a.length/4);};
  const stats=p=>{let sum=0,lit=0;for(let i=0;i<p.length;i+=4){sum+=(p[i]+p[i+1]+p[i+2])*p[i+3]/255;if(Math.max(p[i],p[i+1],p[i+2])*p[i+3]/255>25)lit++;}return{sum,lit};};
@@ -53,6 +53,72 @@ SCRIPT=r'''async()=>{
  r.draw(v,.5,{...camera,yaw:camera.yaw+.7},energy,1,false);c.clearRect(0,0,720,900);r.drawFragments(.5,v,false,r.step);const fragmentB=c.getImageData(0,0,720,900).data;
  const fragmentOrbitDifference=diff(fragmentA,fragmentB);r.draw(v,3,camera,energy,1,false);const expired=r.fragments.length===0;
  r.emitPetal(petal,3,1);r.draw(v,3.1,camera,energy,1,true);const reducedFragments=r.fragments.length===0;
+ // Overview framing and close inspection have different contracts: cropping
+ // at high zoom is intentional, while the cursor anchor and hit IDs stay exact.
+ r.draw(v,0,{...camera,offsetX:0,offsetY:0},energy,1,true);
+ const anchorId=r.hitPoints.find(p=>p.petal>=0&&p.petal<220).petal,ratio=3.2/camera.zoom;
+ const closeChecks=[];
+ for(const [w,h] of [[720,900],[816,327],[1152,740]]){
+  canvas.width=w;canvas.height=h;r.resize(w,h,1);
+  r.draw(v,0,{...camera,offsetX:0,offsetY:0},energy,1,true);
+  const p={...r.projectPetal(anchorId)},origin={x:w*.5,y:h*.53},overviewScale=r.scale;
+  const view={...camera,zoom:3.2,offsetX:(p.x+(origin.x-p.x)*ratio)/w-.5,offsetY:(p.y+(origin.y-p.y)*ratio)/h-.53};
+  r.draw(v,0,view,energy,1,true);
+  const current=r.projectPetal(anchorId),anchorError=Math.hypot(current.x-p.x,current.y-p.y),visible=r.hitPoints.filter(p=>p.x>=0&&p.y>=0&&p.x<w&&p.y<h);
+  const projected=r.faces.flatMap(f=>f.screen),cropped=projected.some(p=>p.x<0||p.y<0||p.x>w||p.y>h),finite=projected.every(p=>[p.x,p.y,p.z].every(Number.isFinite));
+  const selected=visible.filter((p,i)=>i%Math.max(1,Math.floor(visible.length/60))===0);
+  const correctIds=selected.every(p=>r.pick(p.x,p.y)?.id===p.petal),occupiedFinite=[...r.surfaceIds].every((id,i)=>!id||Number.isFinite(r.depth[i]));
+  closeChecks.push({size:[w,h],anchorError,scaleRatio:r.scale/overviewScale,cropped,finite,correctIds,occupiedFinite,visibleTargets:visible.length,cells:r.field.width*r.field.height,faces:r.faces.length});
+ }
+ // Every visible leaf/stem has the same depth-correct identity as its light.
+ canvas.width=720;canvas.height=900;r.resize(720,900,1);energy.fill(0);
+ const foliageChecks=[];
+ for(const kind of ['leaf','stem']){
+  r.draw({...v,idleMotion:0},0,camera,energy,1,true);
+  const visibleTarget=r.interactionPoints.find(p=>p.kind===kind&&r.pick(p.x,p.y)?.id===p.id);
+  if(!visibleTarget)throw new Error('Missing playable '+kind);const target={...visibleTarget};
+  const before=r.rasterPixels.slice(),ids=r.surfaceIds.slice();energy[target.id]=1;
+  r.draw({...v,idleMotion:0},0,camera,energy,1,true);
+  let own=0,brightened=0,delta=0,unrelatedChanges=0;
+  for(let i=0;i<ids.length;i++){const id=(ids[i]&255)-1,o=i*4,d=[0,1,2,3].reduce((sum,k)=>sum+Math.abs(r.rasterPixels[o+k]-before[o+k]),0);
+   if(id===target.id){own++;if(d>0){brightened++;delta+=d;}}else if(d)unrelatedChanges++;
+  }
+  const views=[];
+  for(const view of [{...camera,yaw:.7,pitch:.4,zoom:1},{...camera,zoom:3.2}]){
+   r.draw(v,0,view,energy,1,true);const samples=r.interactionPoints.filter(p=>p.kind===kind&&p.x>=0&&p.y>=0&&p.x<720&&p.y<900);
+   views.push({zoom:view.zoom,targets:samples.length,correctIds:samples.every(p=>r.pick(p.x,p.y)?.id===p.id)});
+  }
+  foliageChecks.push({kind,id:target.id,own,brightened,delta,unrelatedChanges,views});energy.fill(0);
+ }
+ // A real spring strike now drives geometry. Check the angular peak rather
+ // than treating static note energy as a proxy for physical deformation.
+ const strikeFraming=[],strikeAppearance={...v,response:1.5,idleMotion:0};
+ for(const [w,h]of [[816,327],[1152,740]])for(const [yaw,pitch]of [[-.2,-.08],[.7,.4]])for(let flower=0;flower<5;flower++){
+  canvas.width=w;canvas.height=h;r.resize(w,h,1);const view={yaw,pitch,zoom:1.04,offsetX:0,offsetY:0};
+  r.draw(strikeAppearance,0,view,energy,1,true);const id=r.petals.find(p=>p.flower===flower).id;r.strike(id,0,1.2);
+  let peak=0,contained=true;const bounds={left:Infinity,top:Infinity,right:-Infinity,bottom:-Infinity};
+  const add=p=>{bounds.left=Math.min(bounds.left,p.x);bounds.top=Math.min(bounds.top,p.y);bounds.right=Math.max(bounds.right,p.x);bounds.bottom=Math.max(bounds.bottom,p.y);};
+  for(let frame=1;frame<=20;frame++){
+   r.draw(strikeAppearance,frame/60,view,energy,1,false);peak=Math.max(peak,r.flowerMotion[flower].angle);
+   for(const face of r.faces)for(const p of face.screen)add(p);
+   for(const line of r.lines)for(const vertex of[line.a,line.b]){const p=r.world(vertex,strikeAppearance,frame/60,energy,{});add(r.transform(p.x,p.y,p.z));}
+  }
+  contained=bounds.left>=4&&bounds.top>=4&&bounds.right<=w-4&&bounds.bottom<=h-4;
+  strikeFraming.push({size:[w,h],angle:[yaw,pitch],flower,peak,bounds,contained});
+ }
+ const foliageMotion=[];
+ canvas.width=816;canvas.height=327;r.resize(816,327,1);const live={...v,idleMotion:0},view={...camera,zoom:1.04};
+ for(const id of [231,244]){
+  r.draw(live,0,view,energy,1,true);
+  const point={...r.projectInteraction(id)},other={...r.projectInteraction(220)},head={...r.projectPetal(0)};
+  r.strike(id,0,.75);let ownMove=0,otherMove=0,headMove=0,peak=0;
+  for(let frame=1;frame<=24;frame++){
+   r.draw(live,frame/60,view,energy,1,false);
+   const p=r.projectInteraction(id),q=r.projectInteraction(220),h=r.projectPetal(0);
+   ownMove=Math.max(ownMove,Math.hypot(p.x-point.x,p.y-point.y));otherMove=Math.max(otherMove,Math.hypot(q.x-other.x,q.y-other.y));headMove=Math.max(headMove,Math.hypot(h.x-head.x,h.y-head.y));peak=Math.max(peak,p.bend);
+  }
+  foliageMotion.push({id,ownMove,otherMove,headMove,peak});
+ }
  const framing=[];
  const extreme={...v,sceneScale:1.15,bloomScale:1.3,bouquetSpread:1.3,leafSize:1.5,glyphSize:1.6,glow:1,glowRadius:1,response:1.5,idleMotion:1.5};energy.fill(1);
  for(const [w,h] of [[816,327],[1152,740]]){
@@ -67,8 +133,8 @@ SCRIPT=r'''async()=>{
   if(Math.max(...scales)-Math.min(...scales)>1e-9)throw new Error('Orbit changed render scale');
  }
  const backing=[r.atlas,r.field,r.ids,r.glowField];r.dispose();r.dispose();
- const disposed=backing.every(x=>x.width===0&&x.height===0)&&r.faces.length===0&&r.lines.length===0&&r.hitPoints.length===0;
- return{reducedDifference,ambientDifference,start,grown,glyphDifference,smallGrid,largeGrid,sparseGrid,denseGrid,noGlow,fullGlow,reused,geometry,frameCost,sizes,resizeDifference,disposed,emitted,finiteFragments,fragmentOrbitDifference,expired,reducedFragments,framing};
+ const disposed=backing.every(x=>x.width===0&&x.height===0)&&r.faces.length===0&&r.lines.length===0&&r.hitPoints.length===0&&r.interactions.length===0&&r.interactionPoints.length===0&&r.projectedInteractions.length===0&&r.interactionsById.size===0&&r.leafPoses.size===0&&r.flowerPoses.length===0&&r.petalPoses.length===0&&r.stemMotion.angle===0&&r.stemMotion.velocity===0;
+ return{reducedDifference,ambientDifference,start,grown,glyphDifference,smallGrid,largeGrid,sparseGrid,denseGrid,noGlow,fullGlow,reused,geometry,frameCost,sizes,resizeDifference,disposed,emitted,finiteFragments,fragmentOrbitDifference,expired,reducedFragments,framing,closeChecks,foliageChecks,strikeFraming,foliageMotion};
 }'''
 
 async def run(base):
@@ -80,6 +146,8 @@ async def run(base):
             page=await context.new_page();errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
             await page.goto(base+'/__roses_renderer_test__')
             result=await page.evaluate(SCRIPT)
+            result['passed']=False
+            (OUT/'renderer-report.json').write_text(json.dumps(result,indent=2))
             assert result['reducedDifference']==0,result
             assert result['ambientDifference']>.001,result
             assert result['grown']['lit']>result['start']['lit']*4,result
@@ -92,6 +160,18 @@ async def run(base):
             assert 0<result['emitted']<=100 and result['finiteFragments'] and result['fragmentOrbitDifference']>0,result
             assert result['expired'] and result['reducedFragments'],result
             assert all(frame['contained'] for frame in result['framing']),result['framing']
+            assert all(frame['contained'] and frame['peak']>.2 for frame in result['strikeFraming']),result['strikeFraming']
+            leaf_motion,stem_motion=result['foliageMotion']
+            assert leaf_motion['ownMove']>.5 and leaf_motion['otherMove']<.001 and leaf_motion['headMove']<.001,leaf_motion
+            assert stem_motion['ownMove']>.1 and stem_motion['headMove']>.5 and stem_motion['peak']>.02,stem_motion
+            for foliage in result['foliageChecks']:
+                assert foliage['id']>=220 and foliage['own']>0 and foliage['brightened']>0 and foliage['delta']>0,foliage
+                assert foliage['unrelatedChanges']==0,foliage
+                assert all(view['targets']>0 and view['correctIds'] for view in foliage['views']),foliage
+            for close in result['closeChecks']:
+                assert close['anchorError']<1e-6 and abs(close['scaleRatio']-3.2)<1e-8,close
+                assert close['cropped'] and close['finite'] and close['correctIds'] and close['occupiedFinite'],close
+                assert close['visibleTargets']>10 and close['cells']<=81000 and close['faces']<10000,close
             await context.close()
             devices=[]
             for name,width,height,ua,platform in [
@@ -106,7 +186,7 @@ async def run(base):
                 page=await ctx.new_page();page.on('pageerror',lambda e:errors.append(str(e)))
                 await page.goto(base+'/collection.html#roses')
                 await page.wait_for_function("window.__rosesRenderer?.frameId>3")
-                await page.wait_for_timeout(3200)
+                await page.wait_for_function('__rosesRenderer.reveal>=1')
                 device=await page.evaluate("""()=>{const r=__rosesRenderer;return{mobile:r.mobile,backing:[r.canvas.width,r.canvas.height],css:[r.width,r.height],grid:[r.field.width,r.field.height],glyphHits:r.hitPoints.length};}""")
                 assert device['mobile'] and device['backing'][0]*device['backing'][1]<=1003000,device
                 assert device['grid'][0]*device['grid'][1]<=81000 and device['glyphHits']>0,device
