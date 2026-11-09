@@ -27,17 +27,18 @@ SCRIPT=r'''async()=>{
  const {definition}=await import('./instruments/roses.js');
  const canvas=document.createElement('canvas');canvas.width=720;canvas.height=900;
  const c=canvas.getContext('2d',{willReadFrequently:true}),r=new RosesRenderer(canvas,{mobile:true});r.resize(720,900,1);
- const v={...definition.defaultAppearance},camera={yaw:-.2,pitch:-.08,zoom:1},energy=new Float32Array(256);
+ const v={...definition.defaultAppearance},camera={yaw:-.2,pitch:-.08,zoom:1},userCamera={yaw:.19433333333333686,pitch:6.55833333333334,zoom:.7590744829719918,offsetX:0,offsetY:0},energy=new Float32Array(256);
+ const freshCanvas=document.createElement('canvas');freshCanvas.width=1033;freshCanvas.height=688;const fresh=new RosesRenderer(freshCanvas,{mobile:true});fresh.resize(1033,688,1);const initialGrid=[fresh.field.width,fresh.field.height];fresh.draw(v,0,userCamera,energy,1,true);const initialAllocation={initialGrid,grid:[fresh.field.width,fresh.field.height],depth:fresh.depth.length,wideGlow:fresh.wideGlowSource.length,hits:fresh.hitPoints.length};fresh.dispose();
  const paint=(appearance=v,time=0,reduced=true,reveal=1)=>{r.draw(appearance,time,camera,energy,reveal,reduced);return c.getImageData(0,0,canvas.width,canvas.height).data;};
  const diff=(a,b)=>{let n=0;for(let i=0;i<a.length;i+=4)if(a[i]!==b[i]||a[i+1]!==b[i+1]||a[i+2]!==b[i+2]||a[i+3]!==b[i+3])n++;return n/(a.length/4);};
  const stats=p=>{let sum=0,lit=0;for(let i=0;i<p.length;i+=4){sum+=(p[i]+p[i+1]+p[i+2])*p[i+3]/255;if(Math.max(p[i],p[i+1],p[i+2])*p[i+3]/255>25)lit++;}return{sum,lit};};
  // Read the exact source/destination rectangles used for rendered glyphs,
  // then inspect their opaque cores at CSS-pixel scale. A mode flag or a pixel
  // difference alone cannot catch ASCII that has collapsed into tiny dots.
- const glyphCapture=appearance=>{
+ const glyphCapture=(appearance,view=camera)=>{
   const drawImage=c.drawImage.bind(c),marks=[];
   c.drawImage=(image,...args)=>{if(image===r.atlas&&args.length===8)marks.push({source:args.slice(0,4),destination:args.slice(4),smoothing:c.imageSmoothingEnabled});return drawImage(image,...args);};
-  let pixels;try{pixels=paint(appearance);}finally{c.drawImage=drawImage;}
+  let pixels;try{r.draw(appearance,0,view,energy,1,true);pixels=c.getImageData(0,0,canvas.width,canvas.height).data;}finally{c.drawImage=drawImage;}
   const tile=document.createElement('canvas');tile.width=tile.height=64;const tc=tile.getContext('2d',{willReadFrequently:true}),seen=new Set(),glyphs=[];
   for(const mark of marks){const [sx,sy,sw,sh]=mark.source,[dx,dy,dw,dh]=mark.destination,key=sx+':'+sy;if(seen.has(key))continue;seen.add(key);
    tc.clearRect(0,0,64,64);tc.imageSmoothingEnabled=mark.smoothing;tc.drawImage(r.atlas,sx,sy,sw,sh,32-dw/2,32-dh/2,dw,dh);
@@ -50,12 +51,19 @@ SCRIPT=r'''async()=>{
   return{marks:marks.length,glyphs,pixels,grid:[r.field.width,r.field.height]};
  };
  canvas.width=816;canvas.height=327;r.resize(816,327,1);
- const asciiCapture=glyphCapture({...v,glyphStyle:'ascii'}),dotsCapture=glyphCapture({...v,glyphStyle:'dots'});
+ const asciiCapture=glyphCapture({...v,glyphStyle:'ascii'},userCamera),dotsCapture=glyphCapture({...v,glyphStyle:'dots'},userCamera);
  const readable=glyphs=>[...new Set(glyphs.filter(g=>g.height>=6&&g.width>=3&&g.rowPatterns>=3&&g.occupancy<.86).map(g=>g.character))];
  const structured=glyphs=>[...new Set(glyphs.filter(g=>g.height>=3&&g.width>=2&&g.rowPatterns>=2&&g.occupancy<.9).map(g=>g.character))];
  const asciiDotDifference=diff(asciiCapture.pixels,dotsCapture.pixels),densityCaptures=[];
- for(const density of [.45,1.6]){const capture=glyphCapture({...v,glyphStyle:'ascii',glyphDensity:density});densityCaptures.push({density,marks:capture.marks,grid:capture.grid,readableCharacters:readable(capture.glyphs),structuredCharacters:structured(capture.glyphs)});}
+ for(const density of [.45,1.6]){const capture=glyphCapture({...v,glyphStyle:'ascii',glyphDensity:density},userCamera);densityCaptures.push({density,marks:capture.marks,grid:capture.grid,readableCharacters:readable(capture.glyphs),structuredCharacters:structured(capture.glyphs)});}
  const glyphReadability={size:[816,327],asciiMarks:asciiCapture.marks,dotMarks:dotsCapture.marks,asciiDotDifference,readableCharacters:readable(asciiCapture.glyphs),asciiGlyphs:asciiCapture.glyphs,dotGlyphs:dotsCapture.glyphs,densityCaptures};
+ // Saturation and fold gain must change the rendered material, and bloom
+ // must add coloured light outside the surfaces without washing the viewport.
+ const lightingFrame=appearance=>{r.draw(appearance,0,userCamera,energy,1,true);const pixels=c.getImageData(0,0,816,327).data;let chroma=0,count=0;for(let i=0;i<r.surfaceIds.length;i++){const id=(r.surfaceIds[i]&255)-1;if(r.interactionsById.get(id)?.kind!=='petal'||r.surfaceIds[i]&256)continue;const o=i*4,hi=Math.max(...r.rasterPixels.slice(o,o+3)),lo=Math.min(...r.rasterPixels.slice(o,o+3));if(hi>40){chroma+=(hi-lo)/hi;count++;}}return{pixels,chroma:chroma/Math.max(1,count),light:stats(pixels)};};
+ const neutral=lightingFrame({...v,glow:0,saturation:.6}),saturated=lightingFrame({...v,glow:0,saturation:1.8}),lowHighlight=lightingFrame({...v,glow:0,highlightGain:.5}),highHighlight=lightingFrame({...v,glow:0,highlightGain:1.8}),noHalo=lightingFrame({...v,glow:0}),halo=lightingFrame(v);
+ let haloPixels=0,haloChroma=0,brightPixels=0;
+ for(let y=0;y<327;y++)for(let x=0;x<816;x++){const i=(y*816+x)*4,p=halo.pixels,hi=Math.max(p[i],p[i+1],p[i+2]),lo=Math.min(p[i],p[i+1],p[i+2]),lit=hi*p[i+3]/255,old=Math.max(noHalo.pixels[i],noHalo.pixels[i+1],noHalo.pixels[i+2])*noHalo.pixels[i+3]/255;if(lit>200)brightPixels++;const index=Math.floor(y/r.step)*r.cols+Math.floor(x/r.stepX);if(!r.surfaceIds[index]&&lit>4&&lit>old+1){haloPixels++;haloChroma+=(hi-lo)/Math.max(1,hi);}}
+ const lighting={neutralChroma:neutral.chroma,saturatedChroma:saturated.chroma,saturationPixelDifference:diff(neutral.pixels,saturated.pixels),highlightPixelDifference:diff(lowHighlight.pixels,highHighlight.pixels),lowHighlight:lowHighlight.light,highHighlight:highHighlight.light,haloPixels,haloChroma:haloChroma/Math.max(1,haloPixels),brightViewportFraction:brightPixels/(816*327)};
  canvas.width=720;canvas.height=900;r.resize(720,900,1);
  const stillA=paint(),stillB=paint(v,43,true),reducedDifference=diff(stillA,stillB);
  const animatedA=paint(v,0,false),animatedB=paint(v,2.7,false),ambientDifference=diff(animatedA,animatedB);
@@ -64,9 +72,9 @@ SCRIPT=r'''async()=>{
  const glyphDifference=diff(small,large);
  paint({...v,glyphDensity:.45});const sparseGrid=[r.field.width,r.field.height];paint({...v,glyphDensity:1.6});const denseGrid=[r.field.width,r.field.height];
  const noGlow=stats(paint({...v,glow:0})),fullGlow=stats(paint({...v,glow:1}));
- paint(v);const faces=r.faces,firstFace=r.faces[0],atlas=r.atlas,field=r.field,depth=r.depth,buffer=r.rasterPixels;
+ paint(v);const faces=r.faces,firstFace=r.faces[0],atlas=r.atlas,field=r.field,depth=r.depth,buffer=r.rasterPixels,glowSource=r.glowSource,wideGlowSource=r.wideGlowSource;
  for(let i=0;i<30;i++)paint(v,i/60,false);
- const reused=faces===r.faces&&firstFace===r.faces[0]&&atlas===r.atlas&&field===r.field&&depth===r.depth&&buffer===r.rasterPixels;
+ const reused=faces===r.faces&&firstFace===r.faces[0]&&atlas===r.atlas&&field===r.field&&depth===r.depth&&buffer===r.rasterPixels&&glowSource===r.glowSource&&wideGlowSource===r.wideGlowSource;
  const geometry={faces:r.faces.length,petals:r.petals.length,lines:r.lines.length};
  const costs=[];for(let i=0;i<36;i++){const t=performance.now();r.draw(v,i/60,camera,energy,1,false);if(i>=6)costs.push(performance.now()-t);}costs.sort((a,b)=>a-b);
  const frameCost={median:costs[Math.floor(costs.length*.5)],p95:costs[Math.floor(costs.length*.95)],max:costs.at(-1)};
@@ -105,16 +113,22 @@ SCRIPT=r'''async()=>{
   if(!visibleTarget)throw new Error('Missing playable '+kind);const target={...visibleTarget};
   const before=r.rasterPixels.slice(),ids=r.surfaceIds.slice();energy[target.id]=1;
   r.draw({...v,idleMotion:0},0,camera,energy,1,true);
-  let own=0,brightened=0,delta=0,unrelatedChanges=0;
+  let own=0,brightened=0,delta=0,unrelatedChanges=0,unrelatedIdChanges=0,sharedCoverageChanges=0;const overlapChanges=[];
   for(let i=0;i<ids.length;i++){const id=(ids[i]&255)-1,o=i*4,d=[0,1,2,3].reduce((sum,k)=>sum+Math.abs(r.rasterPixels[o+k]-before[o+k]),0);
-   if(id===target.id){own++;if(d>0){brightened++;delta+=d;}}else if(d)unrelatedChanges++;
+   if(id===target.id){own++;if(d>0){brightened++;delta+=d;}}else{
+    if(r.surfaceIds[i]!==ids[i])unrelatedIdChanges++;
+    if(d){const rgbStable=[0,1,2].every(k=>r.rasterPixels[o+k]===before[o+k]),sharedStem=kind==='stem'&&r.interactionsById.get(id)?.kind==='stem'&&r.surfaceIds[i]===ids[i];
+     if(rgbStable&&sharedStem)sharedCoverageChanges++;else unrelatedChanges++;
+     if(overlapChanges.length<8)overlapChanges.push({index:i,idBefore:id,idAfter:(r.surfaceIds[i]&255)-1,before:[...before.slice(o,o+4)],after:[...r.rasterPixels.slice(o,o+4)]});
+    }
+   }
   }
   const views=[];
   for(const view of [{...camera,yaw:.7,pitch:.4,zoom:1},{...camera,zoom:3.2}]){
    r.draw(v,0,view,energy,1,true);const samples=r.interactionPoints.filter(p=>p.kind===kind&&p.x>=0&&p.y>=0&&p.x<720&&p.y<900);
    views.push({zoom:view.zoom,targets:samples.length,correctIds:samples.every(p=>r.pick(p.x,p.y)?.id===p.id)});
   }
-  foliageChecks.push({kind,id:target.id,own,brightened,delta,unrelatedChanges,views});energy.fill(0);
+  foliageChecks.push({kind,id:target.id,own,brightened,delta,unrelatedChanges,unrelatedIdChanges,sharedCoverageChanges,overlapChanges,views});energy.fill(0);
  }
  // A real spring strike now drives geometry. Check the angular peak rather
  // than treating static note energy as a proxy for physical deformation.
@@ -133,7 +147,7 @@ SCRIPT=r'''async()=>{
   strikeFraming.push({size:[w,h],angle:[yaw,pitch],flower,peak,bounds,contained});
  }
  const foliageMotion=[];
- canvas.width=816;canvas.height=327;r.resize(816,327,1);const live={...v,idleMotion:0},view={...camera,zoom:1.04};
+ canvas.width=816;canvas.height=327;r.resize(816,327,1);const live={...v,idleMotion:0,response:.85},view={...camera,zoom:1.04};
  for(const id of [231,244]){
   r.draw(live,0,view,energy,1,true);
   const point={...r.projectInteraction(id)},other={...r.projectInteraction(220)},head={...r.projectPetal(0)};
@@ -143,8 +157,24 @@ SCRIPT=r'''async()=>{
    const p=r.projectInteraction(id),q=r.projectInteraction(220),h=r.projectPetal(0);
    ownMove=Math.max(ownMove,Math.hypot(p.x-point.x,p.y-point.y));otherMove=Math.max(otherMove,Math.hypot(q.x-other.x,q.y-other.y));headMove=Math.max(headMove,Math.hypot(h.x-head.x,h.y-head.y));peak=Math.max(peak,p.bend);
   }
-  foliageMotion.push({id,ownMove,otherMove,headMove,peak});
+  foliageMotion.push({id,response:live.response,ownMove,otherMove,headMove,peak});
  }
+ // A side view must retain actual volume, rather than exposing a nearly
+ // planar flower sheet. Use geometry extents and projected head profiles,
+ // alongside frontmost visible IDs from several complete camera turns.
+ const depthProfiles=[],angleProfiles=[];
+ canvas.width=1152;canvas.height=740;r.resize(1152,740,1);energy.fill(0);r.draw({...v,idleMotion:0},0,camera,energy,1,true);
+ for(let flower=0;flower<5;flower++){
+  const points=r.faces.filter(face=>face.flower===flower&&face.petal>=0).flatMap(face=>face.vertices),span=axis=>Math.max(...points.map(p=>p[axis]))-Math.min(...points.map(p=>p[axis]));
+  depthProfiles.push({flower,diameter:Math.max(span('x'),span('y')),depth:span('z'),depthRatio:span('z')/Math.max(span('x'),span('y')),areas:[]});
+ }
+ for(const yaw of [0,Math.PI/2,Math.PI,Math.PI*1.5]){
+  r.draw({...v,idleMotion:0},0,{...camera,yaw,pitch:.12,zoom:1},energy,1,true);
+  const visible=[...new Set(r.hitPoints.map(p=>p.flower))];
+  for(const profile of depthProfiles){const points=r.faces.filter(face=>face.flower===profile.flower&&face.petal>=0).flatMap(face=>face.screen),width=Math.max(...points.map(p=>p.x))-Math.min(...points.map(p=>p.x)),height=Math.max(...points.map(p=>p.y))-Math.min(...points.map(p=>p.y));profile.areas.push(width*height);}
+  angleProfiles.push({yaw,visibleFlowers:visible,correctIds:r.hitPoints.filter((_,i)=>i%11===0).every(p=>r.pick(p.x,p.y)?.id===p.petal)});
+ }
+ for(const profile of depthProfiles)profile.minimumAreaRatio=Math.min(...profile.areas)/Math.max(...profile.areas);
  const framing=[];
  const extreme={...v,sceneScale:1.15,bloomScale:1.3,bouquetSpread:1.3,leafSize:1.5,glyphSize:1.6,glow:1,glowRadius:1,response:1.5,idleMotion:1.5};energy.fill(1);
  for(const [w,h] of [[816,327],[1152,740]]){
@@ -159,8 +189,8 @@ SCRIPT=r'''async()=>{
   if(Math.max(...scales)-Math.min(...scales)>1e-9)throw new Error('Orbit changed render scale');
  }
  const backing=[r.atlas,r.field,r.ids,r.glowField];r.dispose();r.dispose();
- const disposed=backing.every(x=>x.width===0&&x.height===0)&&r.faces.length===0&&r.lines.length===0&&r.hitPoints.length===0&&r.interactions.length===0&&r.interactionPoints.length===0&&r.projectedInteractions.length===0&&r.interactionsById.size===0&&r.leafPoses.size===0&&r.flowerPoses.length===0&&r.petalPoses.length===0&&r.stemMotion.angle===0&&r.stemMotion.velocity===0;
- return{reducedDifference,ambientDifference,start,grown,glyphDifference,smallGrid,largeGrid,sparseGrid,denseGrid,noGlow,fullGlow,reused,geometry,frameCost,sizes,resizeDifference,disposed,emitted,finiteFragments,fragmentOrbitDifference,expired,reducedFragments,framing,closeChecks,foliageChecks,strikeFraming,foliageMotion,glyphReadability};
+ const disposed=backing.every(x=>x.width===0&&x.height===0)&&r.faces.length===0&&r.lines.length===0&&r.hitPoints.length===0&&r.interactions.length===0&&r.interactionPoints.length===0&&r.projectedInteractions.length===0&&r.interactionsById.size===0&&r.leafPoses.size===0&&r.flowerPoses.length===0&&r.petalPoses.length===0&&r.stemMotion.angle===0&&r.stemMotion.velocity===0&&r.glowSource===null&&r.wideGlowSource===null;
+ return{reducedDifference,ambientDifference,start,grown,glyphDifference,smallGrid,largeGrid,sparseGrid,denseGrid,noGlow,fullGlow,reused,geometry,frameCost,sizes,resizeDifference,disposed,emitted,finiteFragments,fragmentOrbitDifference,expired,reducedFragments,framing,closeChecks,foliageChecks,strikeFraming,foliageMotion,glyphReadability,lighting,depthProfiles,angleProfiles,initialAllocation};
 }'''
 
 async def run(base):
@@ -174,12 +204,21 @@ async def run(base):
             result=await page.evaluate(SCRIPT)
             result['passed']=False
             (OUT/'renderer-report.json').write_text(json.dumps(result,indent=2))
+            allocation=result['initialAllocation']
+            assert allocation['initialGrid']==[300,150] and allocation['grid']==[300,150],allocation
+            assert allocation['depth']==45000 and allocation['wideGlow']==180000 and allocation['hits']>0,allocation
             readability=result['glyphReadability']
             assert readability['asciiMarks']>40 and readability['asciiDotDifference']>.005,readability
             assert len(readability['readableCharacters'])>=4,readability
             assert all(len(item['structuredCharacters'])>=3 for item in readability['densityCaptures']),readability
             assert readability['densityCaptures'][1]['marks']>readability['densityCaptures'][0]['marks']*1.15,readability
             assert all(g['rowPatterns']<=2 or g['height']<6 for g in readability['dotGlyphs']),readability
+            lighting=result['lighting']
+            assert lighting['saturatedChroma']>lighting['neutralChroma']+.04 and lighting['saturationPixelDifference']>.0001,lighting
+            assert lighting['highlightPixelDifference']>.0001 and lighting['highHighlight']['sum']>lighting['lowHighlight']['sum']*1.01,lighting
+            assert lighting['haloPixels']>40 and lighting['haloChroma']>.2 and lighting['brightViewportFraction']<.2,lighting
+            assert all(profile['depthRatio']>.35 and profile['minimumAreaRatio']>.2 for profile in result['depthProfiles']),result['depthProfiles']
+            assert all(len(profile['visibleFlowers'])>=3 and profile['correctIds'] for profile in result['angleProfiles']),result['angleProfiles']
             assert result['reducedDifference']==0,result
             assert result['ambientDifference']>.001,result
             assert result['grown']['lit']>result['start']['lit']*4,result
@@ -198,7 +237,9 @@ async def run(base):
             assert stem_motion['ownMove']>.1 and stem_motion['headMove']>.5 and stem_motion['peak']>.02,stem_motion
             for foliage in result['foliageChecks']:
                 assert foliage['id']>=220 and foliage['own']>0 and foliage['brightened']>0 and foliage['delta']>0,foliage
-                assert foliage['unrelatedChanges']==0,foliage
+                assert foliage['unrelatedChanges']==0 and foliage['unrelatedIdChanges']==0,foliage
+                for coverage in foliage['overlapChanges']:
+                    assert foliage['kind']=='stem' and coverage['idBefore']==coverage['idAfter'] and coverage['before'][:3]==coverage['after'][:3],coverage
                 assert all(view['targets']>0 and view['correctIds'] for view in foliage['views']),foliage
             for close in result['closeChecks']:
                 assert close['anchorError']<1e-6 and abs(close['scaleRatio']-3.2)<1e-8,close

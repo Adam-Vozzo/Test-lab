@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {FIRST_RELEASE_APPEARANCE,THIRD_RELEASE_APPEARANCE,THIRD_RELEASE_SOUND,SECOND_RELEASE_APPEARANCE,APPEARANCE_REVISION,migrateAppearance,FIRST_RELEASE_SOUND,SECOND_RELEASE_SOUND,SOUND_REVISION,migrateSound,preserveStudySessions} from '../instruments/appearance-migration.js';
+import {FOURTH_RELEASE_APPEARANCE,FIRST_RELEASE_APPEARANCE,THIRD_RELEASE_APPEARANCE,THIRD_RELEASE_SOUND,SECOND_RELEASE_APPEARANCE,APPEARANCE_REVISION,migrateAppearance,FIRST_RELEASE_SOUND,SECOND_RELEASE_SOUND,SOUND_REVISION,migrateSound,preserveStudySessions} from '../instruments/appearance-migration.js';
 
 test('untouched first-release looks adopt the revised reference defaults across all instruments',()=>{
   for(const [id,old] of Object.entries(FIRST_RELEASE_APPEARANCE)){
@@ -59,4 +59,19 @@ test('v20 defaults update for the phone revision while edits and other instrumen
  }
  const old=THIRD_RELEASE_SOUND.carrier,revised={...old,index:.55};assert.deepEqual(migrateSound('carrier',{soundRevision:3,sound:old},revised),revised);
  const custom={...old,cutoff:2340};assert.deepEqual(migrateSound('carrier',{soundRevision:3,sound:custom},revised),custom);
+});
+
+
+test('Roses revision5 upgrades only its untouched fourth-release appearance and preserves camera/sound',()=>{
+ const old={sceneBlur:0,sceneGrain:0,sceneGrainSize:1,petalColour:'#d82c75',leafColour:'#82aa8e',petalWidth:1,petalCurl:.7,petalLayers:4,bloomScale:1,bouquetSpread:1,leafSize:1,glyphStyle:'ascii',glyphDensity:1,glyphSize:1,exposure:1,wireContrast:.55,lineWeight:1,glow:.54,glowRadius:.55,sceneScale:1.1,revealDuration:10.5,idleMotion:.5,motionRate:1,response:.85,spray:.7,readoutContrast:.88,readoutSize:1.15};
+ assert.deepEqual(FOURTH_RELEASE_APPEARANCE,{roses:old},'the migration snapshot remains independent of current defaults');
+ const revised={...old,petalWidth:1.25,petalCurl:.55,petalLayers:5,bloomScale:1.1,bouquetSpread:1.05,leafSize:.9,glyphDensity:1.4,glyphSize:1.45,exposure:1.1,wireContrast:.4,lineWeight:.5,glow:.85,glowRadius:.6,sceneScale:1.15,revealDuration:6,idleMotion:1.5,motionRate:.8,response:.2,spray:1,readoutSize:1,saturation:1.3,highlightGain:1.25,idleRotation:.035};
+ const saved={appearanceRevision:4,appearance:{...old},sound:{cutoff:4210},data:{camera:{yaw:.9,pitch:6.3,zoom:1.4,offsetX:.1,offsetY:-.03}},bpm:117},copy=structuredClone(saved);
+ assert.deepEqual(migrateAppearance('roses',saved,revised),revised);
+ assert.deepEqual(saved,copy,'appearance upgrade must not mutate camera, sound, tempo or input');
+ for(const appearance of [{...old,petalWidth:1.25},{...old,glow:.84},{...old,saturation:1.3},Object.fromEntries(Object.entries(old).filter(([key])=>key!=='glow'))]){
+  assert.deepEqual(migrateAppearance('roses',{appearanceRevision:4,appearance},revised),appearance,'even a single designer edit stays intact');
+ }
+ assert.deepEqual(migrateAppearance('roses',{appearanceRevision:5,appearance:{...old}},revised),old);
+ assert.deepEqual(migrateAppearance('cellular',{appearanceRevision:4,appearance:{...old}},revised),old,'other instruments are not swept into the Roses migration');
 });
