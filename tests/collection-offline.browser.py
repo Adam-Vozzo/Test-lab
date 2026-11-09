@@ -1,4 +1,4 @@
-"""Native PWA update and offline regression using the archived v27 worker.
+"""Native PWA update and offline regression using the archived v28 worker.
 Run after source edits finish: python3 tests/collection-offline.browser.py
 Requires Python Playwright. Uses a private loopback server, no WebGL or remote assets.
 """
@@ -18,7 +18,7 @@ from playwright.async_api import async_playwright
 ROOT=Path(__file__).resolve().parents[1]
 OUT=ROOT/'qa'/'collection-offline'
 CURRENT=(ROOT/'sw.js').read_text()
-PREVIOUS=(ROOT/'tests/fixtures/sw-v27.js').read_text()
+PREVIOUS=(ROOT/'tests/fixtures/sw-v28.js').read_text()
 VERSION=re.search(r'\$\{CACHE_PREFIX\}([^`]+)',CURRENT).group(1)
 OLD_VERSION=re.search(r'\$\{CACHE_PREFIX\}([^`]+)',PREVIOUS).group(1)
 NEW='duo-ember-shell-'+VERSION

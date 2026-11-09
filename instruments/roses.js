@@ -35,7 +35,7 @@ export const definition={
   {key:'leafColour',label:'Leaf colour',kind:'color',section:'Stems and leaves',description:'Colour of stem segments, leaf veins and leaf hatching.'},
   range('leafSize','Leaf size',.5,1.5,.05,'Stems and leaves','Size of the compound leaves on the main stem.','×'),
   {key:'glyphStyle',label:'Surface marks',kind:'select',options:[['ascii','ASCII'],['dots','Dots']],section:'Surface',description:'Screen-aligned characters or small square points sampled across the 3D surfaces.'},
-  range('glyphDensity','Surface density',.45,1.6,.05,'Surface','Number of samples across petals and leaves. Device limits bound the total.'),
+  range('glyphDensity','Surface density',.45,1.6,.05,'Surface','Packs more, smaller characters into the surface. Fine settings trade legibility for detail; device limits bound the total.'),
   range('glyphSize','Character size',.65,1.6,.05,'Surface','Size of the individual characters, without changing flower geometry.','×'),
   range('exposure','Glyph exposure',.4,1.6,.05,'Surface','Brightness of the petal and leaf marks; the background remains black.','×'),
   range('wireContrast','Contour contrast',0,1,.05,'Surface','Visibility of fine petal edges, leaf veins and stem construction lines.'),

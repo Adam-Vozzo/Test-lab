@@ -2,7 +2,28 @@ import {Matrix4,Euler} from '../vendor/three.module.min.js';
 import {clamp,lerp,rgba} from './kit.js';
 import {buildRoseGeometry,ROSE_CENTRES} from './roses-geometry.js';
 export {ROSE_CENTRES} from './roses-geometry.js';
-const GLYPHS='.,:-/\\|+=018%#@';
+// A fixed 5×7 bitmap alphabet keeps one-pixel strokes and open counters intact
+// on iOS as well as desktop. Glyphs are ordered by ink coverage, not font order.
+const GLYPH_ROWS={
+ '.':[0,0,0,0,0,0,4],':':[0,4,4,0,4,4,0],'-':[0,0,0,14,0,0,0],
+ '/':[1,2,2,4,8,8,16],'\\':[16,8,8,4,2,2,1],'|':[4,4,4,4,4,4,4],
+ '+':[0,4,4,31,4,4,0],'=':[0,0,31,0,31,0,0],'<':[2,4,8,16,8,4,2],'>':[8,4,2,1,2,4,8],
+ '!':[4,4,4,4,4,0,4],'i':[4,0,12,4,4,4,14],'l':[12,4,4,4,4,4,14],
+ 'x':[0,0,17,10,4,10,17],'v':[0,0,17,17,17,10,4],'t':[4,4,14,4,4,5,2],
+ 'c':[0,0,14,16,16,17,14],'o':[0,0,14,17,17,17,14],'n':[0,0,22,25,17,17,17],
+ 's':[0,0,15,16,14,1,30],'z':[0,0,31,2,4,8,31],
+ '0':[14,17,19,21,25,17,14],'1':[4,12,4,4,4,4,14],'2':[14,17,1,2,4,8,31],
+ '3':[30,1,1,14,1,1,30],'4':[2,6,10,18,31,2,2],'5':[31,16,16,30,1,1,30],
+ '6':[14,16,16,30,17,17,14],'7':[31,1,2,4,8,8,8],'8':[14,27,27,14,27,27,14],'9':[14,17,17,15,1,1,14],
+ 'H':[17,17,17,31,17,17,17],'M':[17,27,21,21,17,17,17],'W':[17,17,17,21,21,27,17],
+ '%':[25,25,2,4,8,19,19],'#':[10,31,10,31,10,31,10],'@':[14,31,27,29,23,16,14],
+ 'B':[30,27,27,30,27,27,30]
+};
+const inkCount=rows=>rows.reduce((sum,row)=>sum+row.toString(2).replace(/0/g,'').length,0);
+const GLYPHS=Object.keys(GLYPH_ROWS).sort((a,b)=>inkCount(GLYPH_ROWS[a])-inkCount(GLYPH_ROWS[b])).join('');
+const TRACE_GLYPHS=['-','|','/','\\'].map(char=>GLYPHS.indexOf(char));
+const LIGHT_GLYPHS=['-','/','\\','|','=','+','<','>'].map(char=>GLYPHS.indexOf(char));
+
 const smooth=x=>{x=clamp(x);return x*x*(3-2*x);};
 const mix=(a,b,t)=>{a=a.replace('#','');b=b.replace('#','');return '#'+[0,2,4].map(i=>Math.round(lerp(parseInt(a.slice(i,i+2),16),parseInt(b.slice(i,i+2),16),t)).toString(16).padStart(2,'0')).join('');};
 
@@ -20,12 +41,15 @@ export class RosesRenderer{
   const geometry=buildRoseGeometry(v);this.faces=geometry.faces;this.lines=geometry.lines;this.petals=geometry.petals;this.interactions=geometry.interactions;this.interactionsById=new Map(this.interactions.map(p=>[p.id,p]));this.drawFaces=this.faces.slice();this.petalsById=new Map(this.petals.map(p=>[p.id,p]));let radius=2.05;for(const face of this.faces)for(const p of face.vertices){let x=p.x,y=p.y,z=p.z;if(p.flower>=0){const f=ROSE_CENTRES[p.flower],ax=f[4],ay=f[5];x*=1.18;y*=1.18;z+=.14;const yy=y*Math.cos(ax)-z*Math.sin(ax),zz=y*Math.sin(ax)+z*Math.cos(ax),xx=x*Math.cos(ay)+zz*Math.sin(ay);z=-x*Math.sin(ay)+zz*Math.cos(ay)+f[2];x=xx+f[0]*(v.bouquetSpread??1);y=yy+f[1];}radius=Math.max(radius,Math.hypot(x,y,z)+.035);}this.boundRadius=radius;
  }
  makeAtlas(v){
-  const key=[v.petalColour,v.leafColour,v.glow,v.glowRadius,v.glyphStyle].join('|');if(key===this.atlasKey)return;this.atlasKey=key;const cell=24;this.atlas.width=GLYPHS.length*cell;this.atlas.height=3*8*cell;const c=this.atlas.getContext('2d');c.clearRect(0,0,this.atlas.width,this.atlas.height);c.font='bold 11px "SFMono-Regular",Consolas,monospace';c.textAlign='center';c.textBaseline='middle';
+  const key=[v.petalColour,v.leafColour,v.glyphStyle].join('|');if(key===this.atlasKey)return;this.atlasKey=key;const cell=24;this.atlas.width=GLYPHS.length*cell;this.atlas.height=3*8*cell;const c=this.atlas.getContext('2d');c.clearRect(0,0,this.atlas.width,this.atlas.height);
   for(let ink=0;ink<3;ink++)for(let level=0;level<8;level++)for(let ch=0;ch<GLYPHS.length;ch++){
-   const col=ink===0?level<3?mix('#250414',v.petalColour,level/3):mix(v.petalColour,'#ffe3e6',Math.pow((level-3)/4,1.4)*.85):ink===1?mix(v.leafColour,'#e2ead1',level/7*.48):mix('#c8b583','#fff0c0',level/7*.6),x=ch*cell+12,y=(ink*8+level)*cell+12;
-   c.globalAlpha=.13+Math.pow(level/7,.8)*.87;c.shadowColor=col;c.shadowBlur=(v.glow??.54)*(2+(v.glowRadius??.55)*6);c.fillStyle=col;if(v.glyphStyle==='dots')c.fillRect(x-1.4,y-1.4,2.8,2.8);else c.fillText(GLYPHS[ch],x,y+.5);
-  }c.globalAlpha=1;c.shadowBlur=0;
+   const col=ink===0?level<3?mix('#250414',v.petalColour,level/3):mix(v.petalColour,'#ffe3e6',Math.pow((level-3)/4,1.4)*.85):ink===1?mix(v.leafColour,'#e2ead1',level/7*.48):mix('#c8b583','#fff0c0',level/7*.6),x=ch*cell,y=(ink*8+level)*cell;
+   c.globalAlpha=.2+Math.pow(level/7,.8)*.8;c.fillStyle=col;
+   if(v.glyphStyle==='dots')c.fillRect(x+11,y+11,2,2);
+   else{const rows=GLYPH_ROWS[GLYPHS[ch]];for(let row=0;row<7;row++)for(let column=0;column<5;column++)if(rows[row]&(1<<(4-column)))c.fillRect(x+10+column,y+9+row,1,1);}
+  }c.globalAlpha=1;
  }
+
  transform(x,y,z,out={}){const e=this.matrix.elements,xx=e[0]*x+e[4]*y+e[8]*z,yy=e[1]*x+e[5]*y+e[9]*z,zz=e[2]*x+e[6]*y+e[10]*z,p=6.8/(6.8-zz),s=this.scale*p;out.x=this.width*(.5+(this.camera.offsetX||0))+xx*s;out.y=this.height*(.53+(this.camera.offsetY||0))-yy*s;out.z=zz;out.s=p;return out;}
  updatePhysics(time,reduced){
   const previous=this.lastPhysicsTime;this.lastPhysicsTime=time;if(reduced||previous!==null&&time-previous>.5){for(const p of this.flowerMotion)p.angle=p.velocity=0;for(const p of this.leafMotion.values())p.angle=p.velocity=0;this.stemMotion.angle=this.stemMotion.velocity=0;return;}
@@ -59,23 +83,37 @@ export class RosesRenderer{
  pick(x,y){let best=null,distance=15*15;for(const p of this.interactionPoints){const d=(x-p.x)**2+(y-p.y)**2;if(d<distance){distance=d;best=p;}}return best?{id:best.id,kind:best.kind,flower:best.flower,x:best.x,y:best.y}:null;}
  draw(v,time,camera,energy,reveal=1,reduced=false){
   this.build(v);this.makeAtlas(v);this.camera={...camera};this.lastAppearance=v;this.lastEnergy=energy;this.lastMotionTime=reduced?0:time*(v.motionRate??1);this.reveal=reveal;this.frameId++;const c=this.c,w=this.width,h=this.height;c.clearRect(0,0,w,h);this.matrix.makeRotationFromEuler(this.euler.set(camera.pitch,camera.yaw,0,'YXZ'));const radius=this.boundRadius,projectedRadius=radius*6.8/Math.sqrt(6.8*6.8-radius*radius),available=Math.max(20,Math.min(w*.5,h*.47)-14);this.scale=available/projectedRadius/(1.08*1.15)*(v.sceneScale??1)*camera.zoom;
-  const t=reduced?0:time*(v.motionRate??1);this.updatePhysics(time,reduced);this.preparePose(v,t,energy);const step=Math.max(Math.sqrt(w*h/80000),Math.max(3,Math.min(w,h)/164)*(v.glyphSize??1)/Math.sqrt(v.glyphDensity??1)),cols=Math.ceil(w/step),rows=Math.ceil(h/step),fieldScale=1/step;
+  const t=reduced?0:time*(v.motionRate??1);this.updatePhysics(time,reduced);this.preparePose(v,t,energy);const pitch=Math.max(4,Math.max(7.5,Math.min(w,h)/120)*(v.glyphSize??1)/Math.sqrt(v.glyphDensity??1)),step=Math.max(Math.sqrt(w*h/(80000*.75)),pitch/2),stepX=step*.75,cols=Math.ceil(w/stepX),rows=Math.ceil(h/step);this.glyphPitch=step*2;
   if(this.field.width!==cols||this.field.height!==rows){this.field.width=this.ids.width=this.glowField.width=cols;this.field.height=this.ids.height=this.glowField.height=rows;this.blurTemp=new Float32Array(cols*rows*4);this.blurPixels=new Uint8ClampedArray(cols*rows*4);this.rasterPixels=new Uint8ClampedArray(cols*rows*4);this.depth=new Float32Array(cols*rows);this.surfaceIds=new Uint16Array(cols*rows);this.density=new Uint8Array(cols*rows);}const fc=this.fieldC,ic=this.idC;fc.clearRect(0,0,cols,rows);ic.clearRect(0,0,cols,rows);
   for(const face of this.faces){let z=0,visible=true;for(let i=0;i<face.vertices.length;i++){const p=this.world(face.vertices[i],v,t,energy,this._world);if(!this.visible(face.vertices[i]))visible=false;const screen=this.transform(p.x,p.y,p.z,face.screen[i]);z+=screen.z;}face.z=z/face.vertices.length;let [nx,ny,nz]=face.normal;if(face.flower>=0){const f=this.flowerPoses[face.flower],yy=ny*f.ca-nz*f.sa,zz=ny*f.sa+nz*f.ca,xx=nx*f.cb+zz*f.sb;nz=-nx*f.sb+zz*f.cb;nx=xx;ny=yy;}else{const leaf=this.leafPoses.get(face.vertices[0].interaction);if(leaf){const [ax,ay,az]=leaf.axis,dot=ax*nx+ay*ny+az*nz,xx=nx*leaf.c+(ay*nz-az*ny)*leaf.s+ax*dot*(1-leaf.c),yy=ny*leaf.c+(az*nx-ax*nz)*leaf.s+ay*dot*(1-leaf.c),zz=nz*leaf.c+(ax*ny-ay*nx)*leaf.s+az*dot*(1-leaf.c);nx=xx;ny=yy;nz=zz;}}const e=this.matrix.elements,rx=e[0]*nx+e[4]*ny+e[8]*nz,ry=e[1]*nx+e[5]*ny+e[9]*nz,rz=e[2]*nx+e[6]*ny+e[10]*nz;const sign=rz<0?-1:1;face.shade=.12+.79*Math.max(0,(-rx*.35+ry*.6+rz*.72)*sign)+.09*Math.pow(1-Math.abs(rz),3);face.visible=visible;}
-  this.depth.fill(-1e9);this.density.fill(0);this.surfaceIds.fill(0);this.rasterPixels.fill(0);this.cols=cols;this.rows=rows;this.step=step;
+  this.depth.fill(-1e9);this.density.fill(0);this.surfaceIds.fill(0);this.rasterPixels.fill(0);this.cols=cols;this.rows=rows;this.step=step;this.stepX=stepX;
   const rgb=hex=>[1,3,5].map(i=>parseInt(hex.slice(i,i+2),16)),pink=rgb(v.petalColour),green=rgb(v.leafColour);
   for(const face of this.faces){if(!face.visible)continue;const interaction=face.vertices[0].interaction,strength=energy[interaction]||0,light=clamp((face.shade-.14)*1.1+face.light*.17+strength*.28),low=face.ink===0?[29,1,13]:face.ink===1?[9,21,15]:[170,155,103],high=face.ink===0?pink:face.ink===1?green:[255,244,191],colour=low.map((v,i)=>Math.round(lerp(v,high[i],light))),code=(interaction+1)|(face.ink===2?256:0);this.rasterTriangle(face.screen[0],face.screen[1],face.screen[2],colour,code);this.rasterTriangle(face.screen[0],face.screen[2],face.screen[3],colour,code);}
   // Thin structural traces share the sampled field, with fractional coverage.
   const a={},b={};for(const ln of this.lines){if(ln.ink===0)continue;this.world(ln.a,v,t,energy,this._world);if(!this.visible(ln.a))continue;this.transform(this._world.x,this._world.y,this._world.z,a);this.world(ln.b,v,t,energy,this._world);if(!this.visible(ln.b))continue;this.transform(this._world.x,this._world.y,this._world.z,b);const strength=energy[ln.a.interaction]||0;this.rasterLine(a,b,strength>.02?green.map((v,i)=>Math.round(lerp(v,[245,241,205][i],strength*.5))):green,Math.min(1,ln.alpha+strength*.3),ln.a.interaction+1);}
   const pixels=this.rasterPixels;fc.putImageData(new ImageData(pixels,cols,rows),0,0);
-  this.drawGlow(pixels,cols,rows,v,w,h);let hitCount=0,interactionCount=0;const stamp=step*2.35,exposure=v.exposure??1;for(let y=0;y<rows;y++)for(let x=0;x<cols;x++){
-   const offset=(y*cols+x)*4,r=pixels[offset],g=pixels[offset+1],b=pixels[offset+2],alpha=pixels[offset+3]/255;if(alpha<.13)continue;const semantic=this.surfaceIds[y*cols+x],petalId=(semantic&255)-1,item=petalId>=0?this.interactionsById.get(petalId):null,petal=item?.kind==='petal'?item:null,ink=petal?(semantic&256?2:0):1,brightness=Math.max(r,g,b)/255,noise=((Math.imul(x+19,374761393)^Math.imul(y+31,668265263))>>>0)%100/100,evolution=reduced?0:Math.sin(t*.65+noise*11+y*.06)*(v.idleMotion??.5)*.035;
-   const materialDensity=Math.min(1,.20+Math.log2(1+this.density[y*cols+x])*.27),level=clamp(Math.floor(Math.pow(brightness,.85)*8.2+(noise-.5)*.65),0,7),char=clamp(Math.floor(Math.pow(clamp(brightness*materialDensity*1.45+(noise-.5)*.12+evolution),.85)*(GLYPHS.length-1)),0,GLYPHS.length-1),sx=(x+.5)*step,sy=(y+.5)*step;c.globalAlpha=clamp(exposure*Math.sqrt(alpha)*(.86+noise*.14));c.drawImage(this.atlas,char*24,(ink*8+level)*24,24,24,sx-stamp*.5,sy-stamp*.5,stamp,stamp);
-   if(petal){const hit=this.hitPoints[hitCount]||(this.hitPoints[hitCount]={});hit.x=sx;hit.y=sy;hit.z=this.depth[y*cols+x];hit.petal=petal.id;hit.flower=petal.flower;hit.visible=true;hitCount++;}if(item){const hit=this.interactionPoints[interactionCount]||(this.interactionPoints[interactionCount]={});hit.x=sx;hit.y=sy;hit.z=this.depth[y*cols+x];hit.id=item.id;hit.petal=item.id;hit.flower=item.flower;hit.kind=item.kind;hit.visible=true;interactionCount++;}
-  }this.hitPoints.length=hitCount;this.interactionPoints.length=interactionCount;c.globalAlpha=1;
+  this.drawGlow(pixels,cols,rows,v,w,h);let hitCount=0,interactionCount=0;
+  // Picking keeps the finer geometry raster. Four samples feed each visible
+  // character so narrow lit folds survive without making the type microscopic.
+  for(let y=0;y<rows;y++)for(let x=0;x<cols;x++){
+   const index=y*cols+x;if(pixels[index*4+3]<34)continue;const id=(this.surfaceIds[index]&255)-1,item=this.interactionsById.get(id);if(!item)continue;const sx=(x+.5)*stepX,sy=(y+.5)*step;
+   if(item.kind==='petal'){const hit=this.hitPoints[hitCount]||(this.hitPoints[hitCount]={});hit.x=sx;hit.y=sy;hit.z=this.depth[index];hit.petal=id;hit.flower=item.flower;hit.visible=true;hitCount++;}
+   const hit=this.interactionPoints[interactionCount]||(this.interactionPoints[interactionCount]={});hit.x=sx;hit.y=sy;hit.z=this.depth[index];hit.id=id;hit.petal=id;hit.flower=item.flower;hit.kind=item.kind;hit.visible=true;interactionCount++;
+  }
+  this.hitPoints.length=hitCount;this.interactionPoints.length=interactionCount;
+  const stamp=this.glyphPitch*3,exposure=v.exposure??1,smoothing=c.imageSmoothingEnabled;c.imageSmoothingEnabled=false;
+  for(let y=0;y<rows;y+=2)for(let x=0;x<cols;x+=2){
+   let coverage=0,rr=0,gg=0,bb=0,material=0,peak=-1,chosen=0,solid=false;
+   for(let dy=0;dy<2;dy++)for(let dx=0;dx<2;dx++){if(x+dx>=cols||y+dy>=rows)continue;const index=(y+dy)*cols+x+dx,off=index*4,a=pixels[off+3]/255;if(a<=0)continue;const light=Math.max(pixels[off],pixels[off+1],pixels[off+2]);coverage+=a;rr+=pixels[off]*a;gg+=pixels[off+1]*a;bb+=pixels[off+2]*a;material+=this.density[index]*a;solid||=a>.98;if(light>peak){peak=light;chosen=index;}}
+   if(coverage<.25)continue;const off=chosen*4,r=lerp(rr/coverage,pixels[off],.6),g=lerp(gg/coverage,pixels[off+1],.6),b=lerp(bb/coverage,pixels[off+2],.6),semantic=this.surfaceIds[chosen],item=this.interactionsById.get((semantic&255)-1),ink=item?.kind==='petal'?(semantic&256?2:0):1,brightness=Math.max(r,g,b)/255,density=material/coverage,materialDensity=Math.min(1,.20+Math.log2(1+density)*.27),noise=((Math.imul(x+19,374761393)^Math.imul(y+31,668265263))>>>0)%100/100,evolution=reduced?0:Math.sin(t*.65+noise*11+y*.06)*(v.idleMotion??.5)*.035;
+   const level=clamp(Math.floor(Math.pow(brightness,.85)*8.2+(noise-.5)*.65),0,7);let char=clamp(Math.floor(Math.pow(clamp(brightness*materialDensity*1.45+(noise-.5)*.12+evolution),.85)*(GLYPHS.length-1)),0,GLYPHS.length-1);
+   if(density<1.5)char=LIGHT_GLYPHS[Math.min(7,Math.floor(brightness*5+noise*3))];
+   if(!solid){const at=(xx,yy)=>xx<0||xx>=cols||yy<0||yy>=rows?0:pixels[(yy*cols+xx)*4+3],directions=[at(x-1,y)+at(x+2,y),at(x,y-1)+at(x,y+2),at(x+2,y-1)+at(x-1,y+2),at(x-1,y-1)+at(x+2,y+2)];let best=1;for(let i=0;i<4;i++)if(directions[i]>directions[best])best=i;char=TRACE_GLYPHS[best];}
+   c.globalAlpha=clamp(exposure*(solid?Math.sqrt(coverage/4):Math.max(.85,Math.sqrt(coverage/4)))*(.9+noise*.1));const sx=(x+1)*stepX,sy=(y+1)*step;c.drawImage(this.atlas,char*24,(ink*8+level)*24,24,24,sx-stamp*.5,sy-stamp*.5,stamp,stamp);
+  }c.globalAlpha=1;c.imageSmoothingEnabled=smoothing;
   // Curved edge traces stay subordinate to the sampled rose sheets.
   if(v.wireContrast>0){for(const ink of [0,1]){c.beginPath();for(const ln of this.lines){if(ln.ink!==ink)continue;this.world(ln.a,v,t,energy,this._world);if(!this.visible(ln.a)||!this.visible(ln.b)||ln.a.flower>=0&&this.intro.open[ln.a.flower]<.06)continue;this.transform(this._world.x,this._world.y,this._world.z,a);this.world(ln.b,v,t,energy,this._world);this.transform(this._world.x,this._world.y,this._world.z,b);c.moveTo(a.x,a.y);c.lineTo(b.x,b.y);}c.strokeStyle=rgba(ink?v.leafColour:v.petalColour,v.wireContrast*(ink?.43:.065));c.lineWidth=.6*(v.lineWeight??1);c.stroke();}}
-  this.drawFragments(time,v,reduced,step);this.projectedPetals=[];this.projectedInteractions=[];for(const item of this.interactions){const point={...item,x:item.centre[0],y:item.centre[1],z:item.centre[2],petal:item.kind==='petal'?item.id:-1,interaction:item.id,kind:item.kind==='stem'&&item.branch!==undefined?'branch':item.kind};this.world(point,v,t,energy,this._world);const p=this.transform(this._world.x,this._world.y,this._world.z),pose={...p,id:item.id,kind:item.kind,flower:item.flower,layer:item.layer,visible:this.visible(point),bend:item.id===244?this.stemMotion.angle:item.flower>=0?this.flowerMotion[item.flower].angle:item.id>=245&&item.id<=249?this.flowerMotion[item.id-245].angle:this.leafMotion.get(item.id)?.angle||0};this.projectedInteractions[item.id]=pose;if(item.kind==='petal')this.projectedPetals[item.id]=pose;}
+  this.drawFragments(time,v,reduced,this.glyphPitch);this.projectedPetals=[];this.projectedInteractions=[];for(const item of this.interactions){const point={...item,x:item.centre[0],y:item.centre[1],z:item.centre[2],petal:item.kind==='petal'?item.id:-1,interaction:item.id,kind:item.kind==='stem'&&item.branch!==undefined?'branch':item.kind};this.world(point,v,t,energy,this._world);const p=this.transform(this._world.x,this._world.y,this._world.z),pose={...p,id:item.id,kind:item.kind,flower:item.flower,layer:item.layer,visible:this.visible(point),bend:item.id===244?this.stemMotion.angle:item.flower>=0?this.flowerMotion[item.flower].angle:item.id>=245&&item.id<=249?this.flowerMotion[item.id-245].angle:this.leafMotion.get(item.id)?.angle||0};this.projectedInteractions[item.id]=pose;if(item.kind==='petal')this.projectedPetals[item.id]=pose;}
  }
  emitPetal(id,time,amount=1){
   const v=this.lastAppearance;if(!v)return;const samples=this.interactionPoints.filter(p=>p.id===id);if(!samples.length)return;
@@ -83,15 +121,15 @@ export class RosesRenderer{
   if(this.fragments.length>100)this.fragments.splice(0,this.fragments.length-100);
  }
  drawFragments(time,v,reduced,step){
-  if(reduced){this.fragments.length=0;return;}const c=this.c;
-  for(let i=this.fragments.length-1;i>=0;i--){const f=this.fragments[i],age=time-f.born;if(age>2.6){this.fragments.splice(i,1);continue;}const p=this.transform(f.x+f.vx*age+Math.sin(age*1.3+f.phase)*age*.035,f.y+f.vy*age,f.z+f.vz*age),size=step*2.35*f.scale*clamp(p.s,.65,1.3),ix=Math.floor(p.x/step),iy=Math.floor(p.y/step);if(ix>=0&&iy>=0&&ix<this.cols&&iy<this.rows&&p.z+.025<this.depth[iy*this.cols+ix])continue;c.globalAlpha=clamp((1-age/2.6)*.72*(v.exposure??1));c.drawImage(this.atlas,f.char*24,(f.ink*8+6)*24,24,24,p.x-size*.5,p.y-size*.5,size,size);}c.globalAlpha=1;
+  if(reduced){this.fragments.length=0;return;}const c=this.c,smoothing=c.imageSmoothingEnabled;c.imageSmoothingEnabled=false;
+  for(let i=this.fragments.length-1;i>=0;i--){const f=this.fragments[i],age=time-f.born;if(age>2.6){this.fragments.splice(i,1);continue;}const p=this.transform(f.x+f.vx*age+Math.sin(age*1.3+f.phase)*age*.035,f.y+f.vy*age,f.z+f.vz*age),size=step*3*f.scale*clamp(p.s,.65,1.3),ix=Math.floor(p.x/this.stepX),iy=Math.floor(p.y/this.step);if(ix>=0&&iy>=0&&ix<this.cols&&iy<this.rows&&p.z+.025<this.depth[iy*this.cols+ix])continue;c.globalAlpha=clamp((1-age/2.6)*.72*(v.exposure??1));c.drawImage(this.atlas,f.char*24,(f.ink*8+6)*24,24,24,p.x-size*.5,p.y-size*.5,size,size);}c.globalAlpha=1;c.imageSmoothingEnabled=smoothing;
  }
  rasterLine(a,b,colour,alpha,code=0){
-  const ax=a.x/this.step,ay=a.y/this.step,bx=b.x/this.step,by=b.y/this.step,steps=Math.max(1,Math.ceil(Math.max(Math.abs(bx-ax),Math.abs(by-ay))*2));
+  const ax=a.x/this.stepX,ay=a.y/this.step,bx=b.x/this.stepX,by=b.y/this.step,steps=Math.max(1,Math.ceil(Math.max(Math.abs(bx-ax),Math.abs(by-ay))*2));
   for(let n=0;n<=steps;n++){const t=n/steps,x=Math.floor(lerp(ax,bx,t)),y=Math.floor(lerp(ay,by,t));if(x<0||y<0||x>=this.cols||y>=this.rows)continue;const index=y*this.cols+x,z=lerp(a.z,b.z,t);if(z+.01<this.depth[index]&&this.surfaceIds[index])continue;const i=index*4;if(this.surfaceIds[index]&&z<this.depth[index])continue;this.rasterPixels[i]=colour[0];this.rasterPixels[i+1]=colour[1];this.rasterPixels[i+2]=colour[2];this.rasterPixels[i+3]=Math.max(this.rasterPixels[i+3],alpha*255);this.surfaceIds[index]=code;this.depth[index]=Math.max(this.depth[index],z);this.density[index]=Math.max(1,this.density[index]);}
  }
  rasterTriangle(a,b,c,colour,code){
-  const step=this.step,cols=this.cols,rows=this.rows,ax=a.x/step,ay=a.y/step,bx=b.x/step,by=b.y/step,cx=c.x/step,cy=c.y/step,area=(by-cy)*(ax-cx)+(cx-bx)*(ay-cy);if(Math.abs(area)<1e-8)return;
+  const step=this.step,stepX=this.stepX,cols=this.cols,rows=this.rows,ax=a.x/stepX,ay=a.y/step,bx=b.x/stepX,by=b.y/step,cx=c.x/stepX,cy=c.y/step,area=(by-cy)*(ax-cx)+(cx-bx)*(ay-cy);if(Math.abs(area)<1e-8)return;
   const minX=Math.max(0,Math.floor(Math.min(ax,bx,cx))),maxX=Math.min(cols-1,Math.ceil(Math.max(ax,bx,cx))),minY=Math.max(0,Math.floor(Math.min(ay,by,cy))),maxY=Math.min(rows-1,Math.ceil(Math.max(ay,by,cy)));
   for(let y=minY;y<=maxY;y++)for(let x=minX;x<=maxX;x++){const px=x+.5,py=y+.5,w1=((by-cy)*(px-cx)+(cx-bx)*(py-cy))/area,w2=((cy-ay)*(px-cx)+(ax-cx)*(py-cy))/area,w3=1-w1-w2;if(w1<-.00001||w2<-.00001||w3<-.00001)continue;const index=y*cols+x,z=w1*a.z+w2*b.z+w3*c.z;this.density[index]=Math.min(15,this.density[index]+1);if(z<this.depth[index])continue;this.depth[index]=z;this.surfaceIds[index]=code;const i=index*4;this.rasterPixels[i]=colour[0];this.rasterPixels[i+1]=colour[1];this.rasterPixels[i+2]=colour[2];this.rasterPixels[i+3]=255;}
  }
@@ -105,7 +143,7 @@ export class RosesRenderer{
    for(let k=-radius;k<=radius;k++){const i=(Math.max(0,Math.min(rows-1,k))*cols+x)*4;sr+=temp[i];sg+=temp[i+1];sb+=temp[i+2];sa+=temp[i+3];}
    for(let y=0;y<rows;y++){const i=(y*cols+x)*4,alpha=sa/span,unpremultiply=alpha>0?255/alpha:0;out[i]=sr/span*unpremultiply;out[i+1]=sg/span*unpremultiply;out[i+2]=sb/span*unpremultiply;out[i+3]=alpha;const ni=(Math.min(rows-1,y+radius+1)*cols+x)*4,oi=(Math.max(0,y-radius)*cols+x)*4;sr+=temp[ni]-temp[oi];sg+=temp[ni+1]-temp[oi+1];sb+=temp[ni+2]-temp[oi+2];sa+=temp[ni+3]-temp[oi+3];}
   }
-  this.glowC.putImageData(new ImageData(out,cols,rows),0,0);this.c.globalAlpha=v.glow*.78;this.c.drawImage(this.glowField,0,0,w,h);this.c.globalAlpha=1;
+  this.glowC.putImageData(new ImageData(out,cols,rows),0,0);this.c.globalAlpha=v.glow*.38;this.c.drawImage(this.glowField,0,0,w,h);this.c.globalAlpha=1;
  }
  dispose(){for(const canvas of [this.atlas,this.field,this.ids,this.glowField])canvas.width=canvas.height=0;this.fragments.length=0;this.faces.length=0;this.drawFaces.length=0;this.lines.length=0;this.petals.length=0;this.hitPoints.length=0;this.projectedPetals.length=0;this.projectedInteractions.length=0;this.interactionPoints.length=0;if(this.interactions)this.interactions.length=0;this.interactionsById?.clear();this.flowerPoses.length=0;this.petalPoses.length=0;for(const p of this.flowerMotion)p.angle=p.velocity=0;this.leafMotion.clear();this.leafPoses.clear();this.stemMotion.angle=this.stemMotion.velocity=0;this.lastPhysicsTime=null;this.idLookup?.clear();this.petalsById?.clear();this.hits.clear();this.blurTemp=this.blurPixels=this.rasterPixels=this.depth=this.surfaceIds=this.density=null;this.lastAppearance=this.lastEnergy=null;}
 }
