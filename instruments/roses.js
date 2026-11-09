@@ -6,7 +6,7 @@ export const definition={
  id:'roses',name:'Roses',layoutMode:'single',commonSoundControls:false,keyboardNotes:true,
  theme:{bg:'#020303',fg:'#bbc7bd',accent:'#df4c8b',muted:'#75857d'},
  defaultSound:{waveform:'roses',roseBody:.32,roseGlass:.72,roseDecay:.56,roseWidth:.18,roseMotion:.22,attack:.02,decay:.35,sustain:.72,release:1.6,gain:.72,cutoff:12000,resonance:.5,echo:.2,delayTime:.39,feedback:.28,glide:.06,detune:0,pan:0,gate:.55,scanRate:'2',bedLevel:.24},
- defaultAppearance:{petalColour:'#d82c75',leafColour:'#82aa8e',petalWidth:1,petalCurl:.7,petalLayers:4,bloomScale:1,bouquetSpread:1,leafSize:1,glyphStyle:'ascii',glyphDensity:1,glyphSize:1,exposure:1,wireContrast:.55,lineWeight:1,glow:.54,glowRadius:.55,sceneScale:1.1,revealDuration:10.5,idleMotion:.5,motionRate:1,response:.85,spray:.7,readoutContrast:.88,readoutSize:1.15},
+ defaultAppearance:{petalColour:'#d82c75',leafColour:'#82aa8e',petalWidth:1.25,petalCurl:.55,petalLayers:5,bloomScale:1.1,bouquetSpread:1.05,leafSize:.9,glyphStyle:'ascii',glyphDensity:1.4,glyphSize:1.45,exposure:1.1,wireContrast:.4,lineWeight:.5,glow:.85,glowRadius:.6,saturation:1.3,highlightGain:1.25,sceneScale:1.15,revealDuration:6,idleMotion:1.5,idleRotation:.035,motionRate:.8,response:.2,spray:1,readoutContrast:.88,readoutSize:1},
  soundControls:[
   range('roseBody','Body level',0,1,.01,'Rose voice','Level of the warm sustained fundamental beneath each petal chime.'),
   range('roseGlass','Glass level',0,1,.01,'Rose voice','Level of the three high, inharmonic partials struck by each petal.'),
@@ -40,11 +40,14 @@ export const definition={
   range('exposure','Glyph exposure',.4,1.6,.05,'Surface','Brightness of the petal and leaf marks; the background remains black.','×'),
   range('wireContrast','Contour contrast',0,1,.05,'Surface','Visibility of fine petal edges, leaf veins and stem construction lines.'),
   range('lineWeight','Contour weight',.5,1.8,.05,'Surface','Stroke width of the fine construction lines.','×'),
+  range('saturation','Petal saturation',.6,1.8,.05,'Light','Colour intensity of petal midtones and their halos; highlights retain a bright warm core.','×'),
+  range('highlightGain','Highlight gain',.5,1.8,.05,'Light','Brightness of the lit petal folds and the light they emit into the bloom.','×'),
   range('glow','Petal bloom',0,1,.05,'Light','Local light surrounding each luminous glyph; zero removes the halo.'),
   range('glowRadius','Bloom radius',0,1,.05,'Light','Radius of the small glyph halos. Does not blur the underlying characters.'),
   range('sceneScale','Bouquet scale',.65,1.15,.05,'View','Size of the complete bouquet within the canvas.','×'),
   range('revealDuration','Entry duration',0,12,.5,'Motion','Time to build the stem, branches, leaves and opening flowers. Zero reveals the complete model.','s'),
-  range('idleMotion','Ambient motion',0,1.5,.05,'Motion','Independent slow breathing and stem sway of the flower heads.'),
+  range('idleMotion','Ambient motion',0,1.5,.05,'Motion','Independent slow tilting and swaying of the flower heads around their stems.'),
+  range('idleRotation','Idle rotation',0,.12,.005,'Motion','Slow rotation of the entire bouquet. Pauses while touching the sculpture, then eases back in. Zero stops rotation.','rad/s'),
   range('motionRate','Ambient speed',0,2,.05,'Motion','Speed of ambient movement, independent of the musical tempo.','×'),
   range('response','Contact bend',0,1.5,.05,'Motion','Amount of flower nod and leaf flex after a note is struck.'),
   range('spray','Released glyphs',0,1,.05,'Motion','Number of small marks released from a struck petal, leaf or stem.'),
@@ -58,7 +61,7 @@ const ZOOM_MIN=.65,ZOOM_MAX=3.2;
 export function mount(host,api){
  const surface=createSurface(host,{label:'Roses. Touch individual petals for chimes; leaves and stems play lower notes. Drag between petals to play different notes. Drag empty space to orbit; pinch anywhere or use the mouse wheel to zoom. Shift-drag to pan a close view.'}),c=surface.ctx,profile=signalRenderProfile(),gate=createFrameGate(profile.mobile?60:90),renderer=new RosesRenderer(surface.canvas,{mobile:profile.mobile});
  surface.resize=()=>{const r=surface.canvas.getBoundingClientRect(),w=Math.max(1,r.width),h=Math.max(1,r.height),d=renderPixelRatio(w,h,window.devicePixelRatio||1,{maxDpr:1.5,maxPixels:profile.mobile?1000000:1700000});if(surface.canvas.width!==Math.round(w*d)||surface.canvas.height!==Math.round(h*d)||surface.dpr!==d){surface.canvas.width=Math.max(1,Math.round(w*d));surface.canvas.height=Math.max(1,Math.round(h*d));c.setTransform(d,0,0,d,0,0);}Object.assign(surface,{width:w,height:h,dpr:d});renderer.resize(w,h,d);return surface;};surface.resize();
- const contacts=new Map(),provenance=new Map(),seenOnsets=new Set(),energy=new Float32Array(256);let camera={yaw:-.20,pitch:-.08,zoom:1.04,offsetX:0,offsetY:0},time=0,startTime=null,lastTime=0,scanCursor=0,barCount=0,transport=false,destroyed=false,lastNote=api.quantize(9),lastStatus='',pinch=null,focus=null,cursor=null,revealProgress=0;
+ const contacts=new Map(),provenance=new Map(),seenOnsets=new Set(),energy=new Float32Array(256);let camera={yaw:.19433333333333686,pitch:6.55833333333334,zoom:.7590744829719918,offsetX:0,offsetY:0},time=0,startTime=null,lastTime=0,scanCursor=0,barCount=0,transport=false,destroyed=false,lastNote=api.quantize(9),lastStatus='',pinch=null,focus=null,cursor=null,revealProgress=0,idleYaw=0,idleSpeed=0,lastInteraction=-Infinity;
  const appearance=()=>({...definition.defaultAppearance,...api.state.appearance});
  const sourceId=(pointer,petal)=>'roses-touch-'+pointer+'-'+petal;
  function emit(id,amount=1){if(!api.reducedMotion)renderer.emitPetal(id,time,amount);}
@@ -71,6 +74,7 @@ export function mount(host,api){
  }
  // Keep the point beneath the fingers stationary as magnification changes.
  // Offsets are viewport fractions, so a saved close view survives resize.
+ function anchorView(){camera.yaw+=idleYaw;idleYaw=0;idleSpeed=0;}
  function constrainView(){const limit=Math.max(0,(camera.zoom-1)*.65);camera.offsetX=clamp(camera.offsetX,-limit,limit);camera.offsetY=clamp(camera.offsetY,-limit,limit);}
  function setZoom(zoom,anchorX,anchorY,origin=camera,startX=anchorX,startY=anchorY){
   const next=clamp(zoom,ZOOM_MIN,ZOOM_MAX),ratio=next/origin.zoom;
@@ -84,27 +88,27 @@ export function mount(host,api){
   const distance=Math.hypot(group[0].x-group[1].x,group[0].y-group[1].y);
   const bothMoved=group.every((q,i)=>Math.hypot(q.x-pinch.points[i].x,q.y-pinch.points[i].y)>5);
   if(!pinch.active&&bothMoved&&Math.abs(distance-pinch.distance)>Math.max(14,pinch.distance*.08)){
-   pinch.active=true;for(const q of group){for(const id of q.ownedSources)(api.noteCancel||api.noteOff)(id);q.ownedSources.clear();q.source=null;q.kind='orbit';}
+   pinch.active=true;anchorView();for(const q of group){for(const id of q.ownedSources)(api.noteCancel||api.noteOff)(id);q.ownedSources.clear();q.source=null;q.kind='orbit';}
   }
   if(!pinch.active)return false;
   setZoom(pinch.camera.zoom*distance/pinch.distance,(group[0].x+group[1].x)/2/surface.width,(group[0].y+group[1].y)/2/surface.height,pinch.camera,pinch.x,pinch.y);return true;
  }
  const unbind=bindPointers(surface.canvas,{
-  down(p){cursor={x:p.x,y:p.y,time};const pan=p.event?.shiftKey,hit=pan?null:renderer.pick(p.x,p.y),q={id:p.id,kind:pan?'pan':hit?'petal':'orbit',x:p.x,y:p.y,source:null,ownedSources:new Set()};contacts.set(p.id,q);if(hit)soundPetal(p,q,hit,true);resetPinch();},
+  down(p){lastInteraction=time;cursor={x:p.x,y:p.y,time};const pan=p.event?.shiftKey,hit=pan?null:renderer.pick(p.x,p.y),q={id:p.id,kind:pan?'pan':hit?'petal':'orbit',x:p.x,y:p.y,source:null,ownedSources:new Set()};if(!hit)anchorView();contacts.set(p.id,q);if(hit)soundPetal(p,q,hit,true);resetPinch();},
   move(p){cursor={x:p.x,y:p.y,time};const q=contacts.get(p.id);if(!q)return;const dx=p.x-q.x,dy=p.y-q.y;q.x=p.x;q.y=p.y;if(movePinch())return;
    if(q.kind==='petal'){const hit=renderer.pick(p.x,p.y);if(hit)soundPetal(p,q,hit);return;}
    if(q.kind==='pan'){camera.offsetX+=dx/surface.width;camera.offsetY+=dy/surface.height;constrainView();}
    else{camera.yaw+=dx*.007;camera.pitch+=dy*.007;}
   },
-  up(p){const q=contacts.get(p.id);if(q?.source)api.noteOff(q.source);contacts.delete(p.id);resetPinch();api.save();},
-  cancel(p){const q=contacts.get(p.id);if(q)for(const id of q.ownedSources)(api.noteCancel||api.noteOff)(id);contacts.delete(p.id);resetPinch();}
+  up(p){lastInteraction=time;const q=contacts.get(p.id);if(q?.source)api.noteOff(q.source);contacts.delete(p.id);resetPinch();api.save();},
+  cancel(p){lastInteraction=time;const q=contacts.get(p.id);if(q)for(const id of q.ownedSources)(api.noteCancel||api.noteOff)(id);contacts.delete(p.id);resetPinch();}
  });
- const wheel=e=>{e.preventDefault();const r=surface.canvas.getBoundingClientRect(),delta=e.deltaY*(e.deltaMode===1?16:e.deltaMode===2?surface.height:1);setZoom(camera.zoom*Math.exp(-delta*.0015),(e.clientX-r.left)/surface.width,(e.clientY-r.top)/surface.height,{...camera});api.save();};surface.canvas.addEventListener('wheel',wheel,{passive:false});
+ const wheel=e=>{lastInteraction=time;anchorView();e.preventDefault();const r=surface.canvas.getBoundingClientRect(),delta=e.deltaY*(e.deltaMode===1?16:e.deltaMode===2?surface.height:1);setZoom(camera.zoom*Math.exp(-delta*.0015),(e.clientX-r.left)/surface.width,(e.clientY-r.top)/surface.height,{...camera});api.save();};surface.canvas.addEventListener('wheel',wheel,{passive:false});
  const hover=e=>{if(e.pointerType==='touch'||contacts.has(e.pointerId))return;const r=surface.canvas.getBoundingClientRect();cursor={x:e.clientX-r.left,y:e.clientY-r.top,time};};surface.canvas.addEventListener('pointermove',hover,{passive:true});
  function drawAnnotations(v,snap){if(!v.readoutContrast)return;const size=(surface.height<400?9.5:12)*v.readoutSize,pad=surface.height<400?12:20,opacity=v.readoutContrast*.8;
   // The reference begins with a calibrated stem before its branches unfold.
   if(renderer.reveal<.43&&renderer.intro){const fade=clamp((.43-renderer.reveal)/.1);for(let n=0;n<=10;n++){const y=-2.02+n*.357;if(n/10>renderer.intro.stem)continue;const p=renderer.transform(0,y,0);label(c,(n/10).toFixed(2),p.x+8,p.y,rgba('#82aa8e',opacity*fade*.75),size*.78);}}
-  if(renderer.reveal>.72){const fade=clamp((renderer.reveal-.72)/.28);label(c,'ROSA / '+String(renderer.petals.length).padStart(3,'0'),pad,surface.height-pad-11,rgba('#c4c9bd',opacity*fade),size);label(c,api.noteName(lastNote)+'  '+(440*Math.pow(2,(lastNote-69)/12)).toFixed(1)+' HZ',pad,surface.height-pad,rgba('#c4c9bd',opacity*fade),size);label(c,'AZ '+((camera.yaw*180/Math.PI)%360).toFixed(1)+'° / '+camera.zoom.toFixed(2)+'×',surface.width-pad,surface.height-pad,rgba('#c4c9bd',opacity*fade),size,'right');}
+  if(renderer.reveal>.72){const fade=clamp((renderer.reveal-.72)/.28);label(c,'ROSA / '+String(renderer.petals.length).padStart(3,'0'),pad,surface.height-pad-11,rgba('#c4c9bd',opacity*fade),size);label(c,api.noteName(lastNote)+'  '+(440*Math.pow(2,(lastNote-69)/12)).toFixed(1)+' HZ',pad,surface.height-pad,rgba('#c4c9bd',opacity*fade),size);label(c,'AZ '+((renderer.camera.yaw*180/Math.PI)%360).toFixed(1)+'° / '+camera.zoom.toFixed(2)+'×',surface.width-pad,surface.height-pad,rgba('#c4c9bd',opacity*fade),size,'right');}
   const active=snap.voices.filter(q=>q.level>.015&&provenance.has(q.id)).sort((a,b)=>b.started-a.started),selected=active.length?provenance.get(active[0].id).petal:focus?.id;
   if(active.length)focus={id:selected,time};
   const strength=focus?clamp(1-(time-focus.time)/1.5):0,p=renderer.projectInteraction?.(selected)||renderer.projectPetal(selected);
@@ -119,7 +123,13 @@ export function mount(host,api){
   frame(t,dt){if(destroyed||!gate.due(t*1000))return;time=t;if(startTime===null)startTime=t;dt=Math.min(.1,lastTime?t-lastTime:dt);lastTime=t;surface.resize();const v=appearance(),snap=api.audio.snapshot();
    for(let i=0;i<energy.length;i++)energy[i]*=Math.exp(-dt*3.2);
    const audible=new Set();for(const voice of snap.voices){const p=provenance.get(voice.id),onset=voice.id+':'+voice.started;audible.add(onset);if(p){energy[p.petal]=Math.max(energy[p.petal],clamp(voice.level*2));if(!seenOnsets.has(onset)&&voice.level>.002){if(!api.reducedMotion)renderer.strike(p.petal,time,.75);emit(p.petal);seenOnsets.add(onset);}}}for(const onset of seenOnsets)if(!audible.has(onset))seenOnsets.delete(onset);
-   revealProgress=Math.max(revealProgress,api.reducedMotion||v.revealDuration<=0?1:clamp((t-startTime)/v.revealDuration));renderer.draw(v,t,camera,energy,revealProgress,api.reducedMotion);
+   revealProgress=Math.max(revealProgress,api.reducedMotion||v.revealDuration<=0?1:clamp((t-startTime)/v.revealDuration));
+   // Keep automatic rotation out of the saved camera. The renderer receives
+   // one shared pose for surfaces, hit testing, annotations and loose glyphs.
+   if(api.reducedMotion){anchorView();}
+   else if(contacts.size||t-lastInteraction<2||revealProgress<1){idleSpeed=0;}
+   else{const target=(v.idleRotation??.035)*(v.motionRate??1);idleSpeed+=(target-idleSpeed)*(1-Math.exp(-dt*1.4));idleYaw+=idleSpeed*dt;}
+   renderer.draw(v,t,{...camera,yaw:camera.yaw+idleYaw},energy,revealProgress,api.reducedMotion);
    for(const q of contacts.values())if(q.kind==='petal'&&t-(q.lastShed??0)>.32){emit(q.petal,.35);q.lastShed=t;}
    drawAnnotations(v,snap);const latest=snap.voices.filter(q=>q.level>.01).sort((a,b)=>b.started-a.started)[0];if(latest)lastNote=latest.midi;const status=api.noteName(lastNote)+' · '+snap.voices.filter(q=>q.gate).length+' voices';if(lastStatus!==status){api.setStatus(status);lastStatus=status;}
    for(const id of provenance.keys())if(!snap.voices.some(q=>q.id===id)&&!api.audio.sources?.has(id)&&![...contacts.values()].some(q=>q.source===id))provenance.delete(id);
@@ -127,7 +137,7 @@ export function mount(host,api){
   onStep(step,when){const interval=Number(api.state.sound.scanRate)||2;if(step%interval)return;const index=scanCursor++%5,candidates=renderer.petals.filter(p=>p.flower===index),entry=candidates[(scanCursor*3)%Math.max(1,candidates.length)];if(!entry)return;const petal=entry.id,flower=entry.flower,id='roses-seq-'+petal,midi=api.quantize(rosePetalDegree(petal,flower));provenance.set(id,{petal,flower});api.audio.pulse(id,midi,{...api.state.sound,velocity:.66,pan:ROSE_CENTRES[flower][0]*.4},when,60/api.state.bpm/4*interval*api.state.sound.gate);if(step===0){const chord=[[3,5,7],[1,5,8],[0,4,7,10]][Math.floor(barCount++/2)%3];if(api.state.sound.bedLevel>0)for(const degree of chord)api.audio.pulse('roses-bed-'+degree,api.quantize(degree),{...api.state.sound,roseLayer:1,roseBody:.9,attack:.8,release:2,gain:api.state.sound.bedLevel,velocity:.65},when,60/api.state.bpm*3.5);}},
   setPlaying(playing){if(playing&&!transport){scanCursor=0;barCount=0;}transport=playing;},
   update(){},cancel(){for(const q of contacts.values())if(q.source)(api.noteCancel||api.noteOff)(q.source);for(const id of provenance.keys())(api.noteCancel||api.noteOff)(id);contacts.clear();pinch=null;},
-  getData(){return{camera:{...camera}};},setData(data){if(data?.camera){const p=data.camera;if(Number.isFinite(p.yaw))camera.yaw=p.yaw;if(Number.isFinite(p.pitch))camera.pitch=p.pitch;if(Number.isFinite(p.zoom))camera.zoom=clamp(p.zoom,ZOOM_MIN,ZOOM_MAX);camera.offsetX=Number.isFinite(p.offsetX)?p.offsetX:0;camera.offsetY=Number.isFinite(p.offsetY)?p.offsetY:0;constrainView();}},
+  getData(){return{camera:{...camera}};},setData(data){if(data?.camera){idleYaw=0;idleSpeed=0;lastInteraction=time;const p=data.camera;if(Number.isFinite(p.yaw))camera.yaw=p.yaw;if(Number.isFinite(p.pitch))camera.pitch=p.pitch;if(Number.isFinite(p.zoom))camera.zoom=clamp(p.zoom,ZOOM_MIN,ZOOM_MAX);camera.offsetX=Number.isFinite(p.offsetX)?p.offsetX:0;camera.offsetY=Number.isFinite(p.offsetY)?p.offsetY:0;constrainView();}},
   destroy(){destroyed=true;unbind();surface.canvas.removeEventListener('wheel',wheel);surface.canvas.removeEventListener('pointermove',hover);for(const id of provenance.keys())(api.noteCancel||api.noteOff)(id);renderer.dispose();surface.destroy();}
  };
 }

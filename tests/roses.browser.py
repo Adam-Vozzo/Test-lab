@@ -18,6 +18,12 @@ from playwright.async_api import async_playwright
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'qa' / 'roses-functional'
 
+# Values supplied by the user, independent of the instrument's defaults.
+USER_APPEARANCE={'sceneBlur':0,'sceneGrain':0,'sceneGrainSize':1,'petalColour':'#d82c75','leafColour':'#82aa8e','petalWidth':1.25,'petalCurl':.55,'petalLayers':5,'bloomScale':1.1,'bouquetSpread':1.05,'leafSize':.9,'glyphStyle':'ascii','glyphDensity':1.4,'glyphSize':1.45,'exposure':1.1,'wireContrast':.4,'lineWeight':.5,'glow':.85,'glowRadius':.6,'sceneScale':1.15,'revealDuration':6,'idleMotion':1.5,'motionRate':.8,'response':.2,'spray':1,'readoutContrast':.88,'readoutSize':1}
+USER_CAMERA={'yaw':.19433333333333686,'pitch':6.55833333333334,'zoom':.7590744829719918,'offsetX':0,'offsetY':0}
+USER_SOUND={'waveform':'roses','roseBody':.32,'roseGlass':.72,'roseDecay':.56,'roseWidth':.18,'roseMotion':.22,'attack':.02,'decay':.35,'sustain':.72,'release':1.6,'gain':.72,'cutoff':12000,'resonance':.5,'echo':.2,'delayTime':.39,'feedback':.28,'glide':.06,'detune':0,'pan':0,'gate':.55,'scanRate':'2','bedLevel':.24,'ratio':1,'index':0}
+NEW_APPEARANCE={'saturation':1.3,'highlightGain':1.25,'idleRotation':.035}
+
 CAPTURE = r'''() => {
   const audio=__rosesHost.audio;
   if(!audio.context)audio._createContext();
@@ -122,6 +128,22 @@ async def run(base):
 
         try:
             await page.goto(base+'/collection.html#roses');await loaded()
+            initial_state=await page.evaluate('({appearance:__rosesHost.state.appearance,sound:__rosesHost.state.sound,bpm:__rosesHost.state.bpm,root:__rosesHost.state.root,scale:__rosesHost.state.scale,arp:__rosesHost.state.arp,arpRate:__rosesHost.state.arpRate})')
+            for key,value in {**USER_APPEARANCE,**NEW_APPEARANCE}.items():assert initial_state['appearance'][key]==value,(key,value,initial_state['appearance'][key])
+            for key,value in USER_SOUND.items():assert initial_state['sound'][key]==value,(key,value,initial_state['sound'][key])
+            assert await camera()==USER_CAMERA,(await camera(),USER_CAMERA)
+            assert {key:initial_state[key] for key in ['bpm','root','scale','arp','arpRate']}=={'bpm':112,'root':50,'scale':'dorian','arp':False,'arpRate':8},initial_state
+            report['checks']['freshDefaultsMatchSuppliedPreset']=True
+            await slider('appearance','petalLayers',2);await close_panels()
+            await page.evaluate('__rosesHost.controller.setData({camera:{yaw:1.2,pitch:.3,zoom:1.5,offsetX:.1,offsetY:.1}})')
+            imported={'format':'duo-instrument','schema':1,'instrument':'roses','appearance':USER_APPEARANCE,'sound':USER_SOUND,'data':{'camera':USER_CAMERA},'bpm':112,'root':50,'scale':'dorian','arp':False,'arpRate':8}
+            await page.locator('#import-look').set_input_files({'name':'roses-user-preset.json','mimeType':'application/json','buffer':json.dumps(imported).encode()})
+            await page.wait_for_function('__rosesHost.state.appearance.petalLayers===5&&__rosesHost.controller.getData().camera.zoom<.76')
+            imported_appearance=await page.evaluate('__rosesHost.state.appearance')
+            for key,value in {**USER_APPEARANCE,**NEW_APPEARANCE}.items():assert imported_appearance[key]==value,(key,value,imported_appearance[key])
+            assert await camera()==USER_CAMERA
+            assert not await page.evaluate('__rosesHost.state.hold||__rosesHost.state.playing')
+            report['checks']['suppliedPresetImportsWithoutLosingNewControls']=True
             await page.evaluate("""()=>{window.__touchTrace=[];for(const type of ['pointerdown','pointermove','pointerup','pointercancel','lostpointercapture'])document.addEventListener(type,e=>{__touchTrace.push({type,id:e.pointerId,x:e.clientX,y:e.clientY});if(__touchTrace.length>30)__touchTrace.shift();},{capture:true});}""")
             await page.wait_for_function('window.__rosesRenderer?.reveal>=1')
             assert not await page.evaluate('__rosesHost.state.playing')
@@ -142,7 +164,8 @@ async def run(base):
             assert not await page.evaluate('__rosesHost.state.playing')
             report['checks']['directPetalTouchBeforePlay']={**pcm,'petal':first_point['petal'],'midi':first['midi']}
 
-            await slider('appearance','idleMotion',0);await slider('appearance','response',0);await close_panels();await page.wait_for_timeout(1200)
+            await slider('appearance','idleMotion',0);await slider('appearance','idleRotation',0);await slider('appearance','response',0);await close_panels()
+            await page.evaluate('__rosesHost.controller.setData(__rosesHost.controller.getData())');await page.wait_for_timeout(1200)
             first_point=await petal(flower=0)
             second_point=next(p for p in await petals() if p['flower']==first_point['flower'] and p['degree']!=first_point['degree'])
             await touch('touchStart',id=11,position=first_point);await count(1)
@@ -375,6 +398,50 @@ async def run(base):
                 assert bounds['scroll']<=width+1 and bounds['stage']['bottom']<=bounds['footer']['top']+1,bounds
                 sizes.append({'width':width,'height':height,'petal':selected['petal'],'midi':value['midi']})
             report['checks']['responsiveProjectedPicking']=sizes
+
+            # Idle rotation is a visual offset, not an edit to the saved camera.
+            # Contacts pause that offset immediately; manual navigation adopts
+            # the visible orientation without snapping back to the stored yaw.
+            idle_base=await camera()
+            await slider('appearance','idleRotation',.035);await close_panels()
+            await page.evaluate('camera=>__rosesHost.controller.setData({camera})',USER_CAMERA)
+            await page.wait_for_timeout(3200)
+            visual_before=await page.evaluate('__rosesRenderer.camera.yaw');base_before=await camera()
+            await page.wait_for_timeout(800)
+            visual_after=await page.evaluate('__rosesRenderer.camera.yaw')
+            assert visual_after-visual_before>.01 and await camera()==base_before,(visual_before,visual_after,base_before,await camera())
+            point=await petal();visible_at_down=await page.evaluate('__rosesRenderer.camera.yaw')
+            await touch('touchStart',id=91,position=point);await count(1);await page.wait_for_timeout(80)
+            paused=await page.evaluate('__rosesRenderer.camera.yaw')
+            assert abs(paused-visible_at_down)<.003,'Petal contact snapped the idle view'
+            assert (await sources())[0]['id'].endswith('-'+str(point['petal']))
+            assert await camera()==base_before
+            await page.wait_for_timeout(350)
+            assert abs(await page.evaluate('__rosesRenderer.camera.yaw')-paused)<1e-9
+            await touch('touchEnd',id=91);await count(0);await page.wait_for_timeout(1200)
+            assert abs(await page.evaluate('__rosesRenderer.camera.yaw')-paused)<1e-9
+            await page.wait_for_timeout(2000)
+            resumed=await page.evaluate('__rosesRenderer.camera.yaw');assert resumed-paused>.008,(paused,resumed)
+            report['checks']['idleRotationPausesForContactThenResumesWithoutEditingCamera']={'visualDelta':visual_after-visual_before,'resumeDelta':resumed-paused}
+            background=await empty(.08,.5);visible_at_down=await page.evaluate('__rosesRenderer.camera.yaw')
+            serial=await page.evaluate('__rosesHost.audio._serial')
+            await touch('touchStart',id=92,position=background);await page.wait_for_timeout(80)
+            adopted=await camera();assert abs(adopted['yaw']-visible_at_down)<.003
+            assert abs(await page.evaluate('__rosesRenderer.camera.yaw')-adopted['yaw'])<1e-9
+            await touch('touchMove',id=92,position={'x':background['x']+70,'y':background['y']+12});await touch('touchEnd',id=92);await count(0)
+            assert await page.evaluate('__rosesHost.audio._serial')==serial
+            await page.wait_for_timeout(300)
+            assert await page.evaluate("JSON.parse(localStorage.getItem('duo.instrument.roses.v1')).data.camera")==await camera()
+            report['checks']['manualOrbitAdoptsAndSavesVisibleIdleOrientation']=True
+            await page.wait_for_timeout(3000)
+            await page.emulate_media(reduced_motion='reduce');await page.wait_for_timeout(100)
+            reduced_yaw=await page.evaluate('__rosesRenderer.camera.yaw')
+            assert abs(reduced_yaw-(await camera())['yaw'])<1e-9
+            await page.wait_for_timeout(300);assert await page.evaluate('__rosesRenderer.camera.yaw')==reduced_yaw
+            await slider('appearance','idleRotation',0);await close_panels()
+            await page.evaluate('camera=>__rosesHost.controller.setData({camera})',idle_base)
+            await page.emulate_media(reduced_motion='no-preference');await page.wait_for_timeout(100)
+            report['checks']['reducedMotionDisablesIdleRotation']=True
 
             # Close inspection deliberately crops the sculpture. The camera
             # must zoom toward the pointed-at detail, keep touch IDs aligned,

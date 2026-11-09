@@ -3,8 +3,8 @@ import {clamp,lerp,seeded} from './kit.js';
 const TAU=Math.PI*2;
 const smooth=value=>{const t=clamp(value);return t*t*(3-2*t);};
 export const ROSE_CENTRES=Object.freeze([
- [-.77,1.09,.24,.58,-.90,-.34],[-.37,1.51,-.15,.51,-1.14,.08],
- [.29,1.53,.13,.56,-.98,.19],[.83,1.16,-.19,.50,-1.16,.30],[.48,.78,.42,.45,-.76,.23]
+ [-.77,1.09,.36,.58,-.68,-.52],[-.37,1.51,-.25,.51,-1.24,-.18],
+ [.29,1.53,.16,.56,-.94,.23],[.83,1.16,-.27,.50,-1.10,.58],[.48,.78,.53,.45,-.62,.10]
 ].map(Object.freeze));
 
 /** Object-space botanical geometry, independent of raster size and camera.
@@ -29,22 +29,25 @@ export function buildRoseGeometry(v={}){
    for(let p=0;p<count;p++){
     const id=flower*40+layer*8+p,seed=p*2.39+layer*.83+flower*1.71;
     const theta=p/count*TAU+layer*1.13+flower*.43+.055*Math.sin(seed*2);
-    const radius=size*radii[layer]*(1+.10*Math.sin(seed)),halfWidth=Math.PI/count*(1.34+.24*width);
+    const radius=size*radii[layer]*(1+.08*Math.sin(seed)),halfWidth=Math.PI/count*(1.37+.24*width);
     const at=(u,vv)=>{
      // Rounded, irregular top edge. Unlike a fan, the side corners end lower
      // on the bowl; they never become repeated spikes around the silhouette.
-     const round=.78+.22*Math.sqrt(Math.max(0,1-u*u));
+     const round=.82+.18*Math.sqrt(Math.max(0,1-u*u));
      const t=vv*round,lip=smooth((t-.70)/.30),opening=Math.sin(t*Math.PI*.5);
-     const angle=theta+u*halfWidth*(.22+.78*Math.pow(opening,.72))+.34*closed*t*t;
-     const coreTurn=layer>=3?(p===0?.48:.12)*smooth((t-.58)/.42):0;
-     const r=radius*(.18+.70*opening+.14*(1-closed)*lip)*(1+.035*Math.sin(u*3.7+seed)*t*t)*(1-coreTurn);
+     const angle=theta+u*halfWidth*(.20+.80*Math.pow(opening,.66))+.42*closed*t*t;
+     const coreTurn=layer>=3?(p===0?.43:.18)*smooth((t-.58)/.42):.07*closed*lip;
+     // A broad shoulder makes every head round in profile. All petals attach
+     // within the receptacle, then swell outward before their rolled rim.
+     const root=size*(.075+.007*layer),shoulder=Math.pow(opening,.57);
+     const r=(root+(radius-root)*shoulder+radius*.075*Math.sin(Math.PI*t)+radius*.05*(1-closed)*lip)*(1+.028*Math.sin(u*3.7+seed)*t*t)*(1-coreTurn);
      // Tall inner petals interleave above the turned-out outer lips. A side
      // fold and a gentle oblique crease make each sheet catch light distinctly.
-     const wall=size*(-.40+(.79+.07*closed)*t+.035*layer);
-     const roll=radius*(.23+.12*curl)*(1-.52*closed)*lip;
-     const side=radius*(.06+.08*curl)*u*u*Math.sin(t*Math.PI*.85);
-     const crease=radius*.052*Math.sin(u*3.1+seed)*Math.sin(t*Math.PI);
-     const ruffle=radius*.027*Math.sin(u*7.2+seed*1.3)*lip;
+     const wall=size*(-.335+(1.13+.045*closed)*t+.020*layer*t);
+     const roll=radius*(.23+.12*curl)*(1-.42*closed)*lip;
+     const side=radius*(.07+.085*curl)*u*u*Math.sin(t*Math.PI*.85);
+     const crease=radius*.065*Math.sin(u*3.1+seed)*Math.sin(t*Math.PI);
+     const ruffle=radius*.025*Math.sin(u*7.2+seed*1.3)*lip;
      return[Math.cos(angle)*r,Math.sin(angle)*r,wall-roll+side+crease+ruffle];
     };
     petals.push({id,flower,layer,centre:at(0,.75),radius:radius*.60,kind:'petal'});
@@ -63,11 +66,24 @@ export function buildRoseGeometry(v={}){
     for(let i=1;i<=6;i++){const next=at(.34,.35+i*.10);line(previous,next,flower,id,0,.07);previous=next;}
    }
   }
-  // The narrow calyx joins the bowl base to its supporting branch.
+  // A closed, rounded receptacle unifies every petal root and the branch.
+  // Its bottom stays on the renderer's z=-.39*size nodding pivot.
+  const rings=[[-.39,.035],[-.30,.16],[-.13,.22]],segments=10;
+  const ring=(row,angle)=>[Math.cos(angle)*rings[row][1]*size,Math.sin(angle)*rings[row][1]*size,rings[row][0]*size];
+  for(let p=0;p<segments;p++){
+   const a=p/segments*TAU,b=(p+1)/segments*TAU;
+   for(let row=0;row<rings.length-1;row++)face([ring(row,a),ring(row,b),ring(row+1,b),ring(row+1,a)],flower,-1,1,.40+.10*Math.sin(a));
+   face([[0,0,-.39*size],ring(0,b),ring(0,a),[0,0,-.39*size]],flower,-1,1,.35);
+  }
+  // Five narrow sepals wrap up the lower bowl; they do not form a separate
+  // star behind it. Their creases remain readable in rear and side views.
   for(let p=0;p<5;p++){
-   const angle=p/5*TAU,base=[0,0,-.42*size],tip=[Math.cos(angle)*size*.26,Math.sin(angle)*size*.26,-.22*size],tangent=[-Math.sin(angle)*size*.065,Math.cos(angle)*size*.065,0];
-   face([base,[tip[0]-tangent[0],tip[1]-tangent[1],tip[2]-.03],tip,[tip[0]+tangent[0],tip[1]+tangent[1],tip[2]-.03]],flower,-1,1,.48);
-   line(base,tip,flower,-1,1,.60);
+   const angle=p/5*TAU+.15,at=(u,t)=>{
+    const r=size*(.15+.37*t),width=size*.085*Math.sin(Math.PI*t),z=size*(-.34+.12*t-.025*Math.sin(Math.PI*t));
+    return[Math.cos(angle)*r-Math.sin(angle)*u*width,Math.sin(angle)*r+Math.cos(angle)*u*width,z+Math.abs(u)*size*.025*Math.sin(Math.PI*t)];
+   };
+   for(let row=0;row<3;row++)face([at(-1,row/3),at(1,row/3),at(1,(row+1)/3),at(-1,(row+1)/3)],flower,-1,1,.42+.08*Math.cos(angle));
+   let previous=at(0,0);for(let row=1;row<=5;row++){const next=at(0,row/5);line(previous,next,flower,-1,1,.65);previous=next;}
   }
  }
  const stem=t=>[.025*Math.sin(t*4.6),lerp(-2.02,1.55,t),.013*Math.sin(t*3)];
