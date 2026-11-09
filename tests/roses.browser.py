@@ -99,13 +99,20 @@ async def run(base):
         async def petals():
             # Choose actual rendered glyph positions whose frontmost picker
             # reports the same petal. No assumed screen centres or DOM shims.
-            return await page.evaluate("""async()=>{const m=await import('./instruments/roses.js'),r=__rosesRenderer,b=document.querySelector('#stage canvas').getBoundingClientRect(),seen=new Set(),out=[];for(const p of r.hitPoints){if(!p.visible||p.petal<0||seen.has(p.petal))continue;const hit=r.pick(p.x,p.y);if(hit?.id!==p.petal)continue;seen.add(p.petal);out.push({x:b.x+p.x,y:b.y+p.y,petal:p.petal,flower:p.flower,layer:r.petals.find(q=>q.id===p.petal)?.layer,degree:m.rosePetalDegree(p.petal,p.flower)});}return out;}""")
+            return await page.evaluate("""async()=>{const m=await import('./instruments/roses.js'),r=__rosesRenderer,b=document.querySelector('#stage canvas').getBoundingClientRect(),seen=new Set(),out=[];for(const p of r.hitPoints){if(!p.visible||p.petal<0||p.petal>=220||p.x<8||p.y<8||p.x>b.width-8||p.y>b.height-8||seen.has(p.petal))continue;const hit=r.pick(p.x,p.y);if(hit?.id!==p.petal)continue;seen.add(p.petal);out.push({x:b.x+p.x,y:b.y+p.y,petal:p.petal,flower:p.flower,layer:r.petals.find(q=>q.id===p.petal)?.layer,degree:m.rosePetalDegree(p.petal,p.flower)});}return out;}""")
 
         async def petal(index=None,flower=None,exclude=None):
             points=await petals()
             found=next((p for p in points if (index is None or p['petal']==index) and (flower is None or p['flower']==flower) and p['petal']!=exclude),None)
             assert found,{'index':index,'flower':flower,'available':points}
             return found
+
+        async def foliage(kind=None):
+            points=await page.evaluate("""()=>{const r=__rosesRenderer,b=document.querySelector('#stage canvas').getBoundingClientRect(),seen=new Set(),out=[];for(const p of r.interactionPoints){if(p.id<220||p.x<8||p.y<8||p.x>b.width-8||p.y>b.height-8||seen.has(p.id)||r.pick(p.x,p.y)?.id!==p.id)continue;seen.add(p.id);out.push({x:b.x+p.x,y:b.y+p.y,id:p.id,kind:p.kind});}return out;}""")
+            if kind is None:return points
+            result=next((point for point in points if point['kind']==kind),None)
+            assert result,{'missingKind':kind,'points':points}
+            return result
 
         async def empty(nx=.1,ny=.5):
             return await page.evaluate("""([nx,ny])=>{const r=__rosesRenderer,b=document.querySelector('#stage canvas').getBoundingClientRect(),x=b.width*nx,y=b.height*ny;if(r.pick(x,y))throw Error('Expected empty camera point');return{x:b.x+x,y:b.y+y};}""",[nx,ny])
@@ -135,7 +142,7 @@ async def run(base):
             assert not await page.evaluate('__rosesHost.state.playing')
             report['checks']['directPetalTouchBeforePlay']={**pcm,'petal':first_point['petal'],'midi':first['midi']}
 
-            await slider('appearance','idleMotion',0);await close_panels()
+            await slider('appearance','idleMotion',0);await slider('appearance','response',0);await close_panels();await page.wait_for_timeout(1200)
             first_point=await petal(flower=0)
             second_point=next(p for p in await petals() if p['flower']==first_point['flower'] and p['degree']!=first_point['degree'])
             await touch('touchStart',id=11,position=first_point);await count(1)
@@ -147,14 +154,43 @@ async def run(base):
             await touch('touchEnd',id=11);await count(0)
             report['checks']['individualPetalPitches']={'first':initial['midi'],'second':moved['midi'],'flower':first_point['flower']}
 
-            available=await petals();responding=next(p for p in available if p['petal'] not in [first_point['petal'],second_point['petal']]);unrelated=next(p for p in available if p['flower']!=responding['flower'] and p['petal'] not in [first_point['petal'],second_point['petal']])
+            await slider('appearance','response',.85);await close_panels()
+            available=await petals();responding=next(p for p in available if p['flower']!=first_point['flower']);unrelated=next(p for p in available if p['flower'] not in [responding['flower'],first_point['flower']])
             before_positions=await page.evaluate("ids=>ids.map(id=>({...__rosesRenderer.projectPetal(id)}))",[responding['petal'],unrelated['petal']])
-            await touch('touchStart',id=12,position=responding);await count(1);await page.wait_for_timeout(90)
-            after_positions=await page.evaluate("ids=>ids.map(id=>({...__rosesRenderer.projectPetal(id)}))",[responding['petal'],unrelated['petal']])
-            movement=[((a['x']-b['x'])**2+(a['y']-b['y'])**2)**.5 for a,b in zip(after_positions,before_positions)]
+            await touch('touchStart',id=12,position=responding);await count(1)
+            movement=[0,0]
+            for sample in range(4):
+                await page.wait_for_timeout(100)
+                after_positions=await page.evaluate("ids=>ids.map(id=>({...__rosesRenderer.projectPetal(id)}))",[responding['petal'],unrelated['petal']])
+                for i,(a,b) in enumerate(zip(after_positions,before_positions)):
+                    movement[i]=max(movement[i],((a['x']-b['x'])**2+(a['y']-b['y'])**2)**.5)
             assert movement[0]>.25 and movement[1]<.05,movement
             await touch('touchEnd',id=12);await count(0)
             report['checks']['localPetalDisplacement']={'playedPixels':movement[0],'unrelatedPixels':movement[1]}
+            await slider('appearance','response',0);await close_panels();await page.wait_for_timeout(1200)
+
+            # Foliage is musical geometry, not a decorative overlap. Record
+            # after preceding tails have drained so each PCM capture establishes
+            # that this leaf/stem contact itself creates audible output.
+            foliage_pcm=[]
+            for pointer,kind in [(13,'leaf'),(14,'stem')]:
+                await page.wait_for_function('__rosesHost.audio.snapshot().voices.length===0&&__rosesHost.audio.snapshot().rms<.00005',timeout=10000)
+                target=await foliage(kind);before=await camera();await page.evaluate(CAPTURE)
+                await touch('touchStart',id=pointer,position=target);await count(1)
+                voice=(await sources())[0]
+                assert voice['id'].endswith('-'+str(target['id'])) and voice['midi']<initial['midi'],(target,voice,initial)
+                await page.wait_for_timeout(300);await touch('touchEnd',id=pointer);await count(0)
+                await page.wait_for_timeout(100);pcm=await page.evaluate('finishRosesCapture()');audible(pcm)
+                assert await camera()==before and not await page.evaluate('__rosesHost.state.playing')
+                foliage_pcm.append({'kind':kind,'id':target['id'],'midi':voice['midi'],**pcm})
+            report['checks']['leavesAndStemsPlayLowerAudibleNotesBeforeTransport']=foliage_pcm
+            leaf=await foliage('leaf');head=await petal()
+            await touch('touchStart',id=15,position=leaf);await touch('touchStart',id=16,position=head);await count(2)
+            leaf_source=next(source for source in await sources() if source['id'].endswith('-'+str(leaf['id'])))
+            await touch('touchEnd',id=16);await count(1)
+            assert (await sources())[0]['id']==leaf_source['id']
+            await touch('touchEnd',id=15);await count(0)
+            report['checks']['leafAndPetalHaveIndependentTouchOwnership']=True
 
             serial=await page.evaluate('__rosesHost.audio._serial')
             origin=await empty();destination={'x':origin['x']+95,'y':origin['y']+30}
@@ -172,6 +208,13 @@ async def run(base):
             await touch('touchEnd',id=22);await count(0)
             report['checks']['orbitDoesNotPlayOrZoom']={'before':before,'after':after}
             report['checks']['pickingAfterOrbit']=True
+            rotated_foliage=[]
+            for pointer,kind in [(25,'leaf'),(26,'stem')]:
+                target=await foliage(kind)
+                await touch('touchStart',id=pointer,position=target);await count(1)
+                assert (await sources())[0]['id'].endswith('-'+str(target['id']))
+                await touch('touchEnd',id=pointer);await count(0);rotated_foliage.append({'kind':kind,'id':target['id']})
+            report['checks']['foliagePickingAfterOrbit']=rotated_foliage
 
             left=await empty(.08,.42);right=await empty(.92,.42)
             before=await camera();serial=await page.evaluate('__rosesHost.audio._serial')
@@ -332,6 +375,123 @@ async def run(base):
                 assert bounds['scroll']<=width+1 and bounds['stage']['bottom']<=bounds['footer']['top']+1,bounds
                 sizes.append({'width':width,'height':height,'petal':selected['petal'],'midi':value['midi']})
             report['checks']['responsiveProjectedPicking']=sizes
+
+            # Close inspection deliberately crops the sculpture. The camera
+            # must zoom toward the pointed-at detail, keep touch IDs aligned,
+            # and still provide a mobile route out of a petal-filled viewport.
+            previous_camera=await camera()
+            await page.emulate_media(reduced_motion='reduce')
+            previous_response=await page.evaluate('__rosesHost.state.appearance.response')
+            await slider('appearance','response',0);await close_panels()
+            overview={'yaw':-.2,'pitch':-.08,'zoom':1.04,'offsetX':0,'offsetY':0}
+            await page.evaluate('camera=>__rosesHost.controller.setData({camera})',overview)
+            await page.wait_for_timeout(100)
+            anchor_target=await petal(flower=0)
+            anchor=await page.evaluate("id=>{const p=__rosesRenderer.projectPetal(id),b=document.querySelector('#stage canvas').getBoundingClientRect();return{x:p.x+b.x,y:p.y+b.y,id};}",anchor_target['petal'])
+            serial=await page.evaluate('__rosesHost.audio._serial')
+            await page.mouse.move(anchor['x'],anchor['y']);await page.mouse.wheel(0,-3000)
+            await page.wait_for_function('__rosesHost.controller.getData().camera.zoom>3.19')
+            await page.wait_for_timeout(100)
+            close_camera=await camera()
+            anchored=await page.evaluate("id=>{const p=__rosesRenderer.projectPetal(id),b=document.querySelector('#stage canvas').getBoundingClientRect();return{x:p.x+b.x,y:p.y+b.y};}",anchor['id'])
+            anchor_error=((anchored['x']-anchor['x'])**2+(anchored['y']-anchor['y'])**2)**.5
+            assert abs(close_camera['zoom']-3.2)<1e-8 and anchor_error<1.5,(close_camera,anchor,anchored)
+            await page.mouse.wheel(0,-3000);await page.wait_for_timeout(100)
+            assert await camera()==close_camera,'Scrolling against the zoom limit moved the camera'
+            assert await page.evaluate('__rosesHost.audio._serial')==serial,'Wheel zoom sounded a note'
+            close_target=await petal()
+            await touch('touchStart',id=81,position=close_target);await count(1)
+            assert (await sources())[0]['id'].endswith('-'+str(close_target['petal']))
+            await touch('touchEnd',id=81);await count(0)
+            report['checks']['cursorAnchoredCloseZoomAndPicking']={'zoom':close_camera['zoom'],'anchorErrorPixels':anchor_error}
+
+            pan_origin=await page.evaluate("()=>{const b=document.querySelector('#stage canvas').getBoundingClientRect();return{x:b.x+b.width*.5,y:b.y+b.height*.48,w:b.width,h:b.height};}")
+            pan_before=await camera();serial=await page.evaluate('__rosesHost.audio._serial')
+            await page.mouse.move(pan_origin['x'],pan_origin['y']);await page.keyboard.down('Shift');await page.mouse.down()
+            await page.mouse.move(pan_origin['x']+24,pan_origin['y']+16,steps=3);await page.mouse.up();await page.keyboard.up('Shift')
+            await page.wait_for_timeout(80);pan_after=await camera()
+            assert all(pan_before[k]==pan_after[k] for k in ['yaw','pitch','zoom'])
+            assert abs((pan_after['offsetX']-pan_before['offsetX'])*pan_origin['w']-24)<1.5
+            assert abs((pan_after['offsetY']-pan_before['offsetY'])*pan_origin['h']-16)<1.5
+            assert await page.evaluate('__rosesHost.audio._serial')==serial
+            report['checks']['shiftDragPansCloseViewWithoutPlaying']=True
+
+            await page.mouse.wheel(0,4000)
+            await page.wait_for_function('__rosesHost.controller.getData().camera.zoom<.651')
+            minimum=await camera()
+            assert minimum['zoom']==.65 and minimum['offsetX']==0 and minimum['offsetY']==0,minimum
+            await page.mouse.wheel(0,4000);await page.wait_for_timeout(80)
+            assert await camera()==minimum
+            report['checks']['zoomOutRestoresOverviewAndStopsAtLimit']=True
+
+            # A stationary second playing finger does not turn a glissando
+            # into a camera gesture; pinch conversion requires both to move.
+            await page.evaluate('camera=>__rosesHost.controller.setData({camera})',overview);await page.wait_for_timeout(100)
+            available=await petals();first=available[0];second=max(available,key=lambda p:(p['x']-first['x'])**2+(p['y']-first['y'])**2)
+            await touch('touchStart',id=82,position=first);await touch('touchStart',id=83,position=second);await count(2)
+            stationary_camera=await camera()
+            next_target=max((p for p in await petals() if p['petal']!=first['petal']),key=lambda p:(p['x']-first['x'])**2+(p['y']-first['y'])**2)
+            await touch('touchMove',id=82,position=next_target);await page.wait_for_timeout(80)
+            assert await camera()==stationary_camera
+            assert len(await sources())==2
+            await touch('touchEnd',id=83);await touch('touchEnd',id=82);await count(0)
+            report['checks']['oneFingerGlissandoDoesNotBecomePinch']=True
+
+            # Start zoomed in, where empty-space-only gestures would trap touch
+            # users. Convert two moving petal contacts while preserving a third
+            # independently latched voice, then pan by their midpoint.
+            await page.evaluate('camera=>__rosesHost.controller.setData({camera})',close_camera);await page.wait_for_timeout(100)
+            await page.locator('#hold').click()
+            await touch('touchStart',id=84,position=await petal());await touch('touchEnd',id=84);await count(1)
+            unrelated=(await sources())[0]
+            available=await petals();first=available[0];second=max(available,key=lambda p:(p['x']-first['x'])**2+(p['y']-first['y'])**2)
+            dx=second['x']-first['x'];dy=second['y']-first['y'];distance=(dx*dx+dy*dy)**.5
+            assert distance>65,distance
+            ux=dx/distance;uy=dy/distance;shift=min(45,distance*.2)
+            await touch('touchStart',id=85,position=first);await touch('touchStart',id=86,position=second);await count(3)
+            before_pinch=await camera()
+            moved_first={'x':first['x']+ux*shift,'y':first['y']+uy*shift}
+            moved_second={'x':second['x']-ux*shift,'y':second['y']-uy*shift}
+            await touch('touchMove',id=85,position=moved_first);await touch('touchMove',id=86,position=moved_second)
+            await page.wait_for_function('zoom=>__rosesHost.controller.getData().camera.zoom<zoom-.1',arg=before_pinch['zoom'])
+            await count(1);assert (await sources())[0]['id']==unrelated['id']
+            after_pinch=await camera();await page.wait_for_timeout(100)
+            assert after_pinch['yaw']==before_pinch['yaw'] and after_pinch['pitch']==before_pinch['pitch']
+            # Equal movement preserves separation, so final zoom stays fixed
+            # while the inspected object translates with the pair's midpoint.
+            midpoint_pan={'x':18,'y':12}
+            projected_before=await page.evaluate('id=>({...__rosesRenderer.projectPetal(id)})',first['petal'])
+            await touch('touchMove',id=85,position={'x':moved_first['x']+18,'y':moved_first['y']+12})
+            await touch('touchMove',id=86,position={'x':moved_second['x']+18,'y':moved_second['y']+12})
+            await page.wait_for_timeout(100)
+            after_pan=await camera();projected_after=await page.evaluate('id=>({...__rosesRenderer.projectPetal(id)})',first['petal'])
+            assert abs(after_pan['zoom']-after_pinch['zoom'])<1e-6,(after_pinch,after_pan)
+            pan_error=((projected_after['x']-projected_before['x']-18)**2+(projected_after['y']-projected_before['y']-12)**2)**.5
+            assert pan_error<2.5,(projected_before,projected_after,pan_error)
+            await touch('touchCancel',id=85);await count(1)
+            assert (await sources())[0]['id']==unrelated['id']
+            await page.locator('#hold').click();await count(0)
+            report['checks']['petalPinchZoomOutAndMidpointPanPreserveOtherLatch']={'before':before_pinch,'after':after_pinch,'panErrorPixels':pan_error}
+
+            # Offsets use fractions of the viewport, so shape placement and the
+            # chosen zoom survive a real resize and persisted reload.
+            await page.wait_for_timeout(300)
+            saved_close=await camera()
+            await page.set_viewport_size({'width':390,'height':844});await page.wait_for_timeout(200)
+            assert await camera()==saved_close
+            await page.reload();await loaded();await page.wait_for_function('__rosesRenderer.reveal>=1')
+            assert await camera()==saved_close,(saved_close,await camera())
+            assert not await page.evaluate('__rosesHost.state.hold||__rosesHost.state.playing')
+            await page.set_viewport_size({'width':844,'height':390});await page.wait_for_timeout(180)
+            await page.evaluate('camera=>__rosesHost.controller.setData({camera})',previous_camera)
+            await slider('appearance','response',previous_response);await close_panels();await page.wait_for_timeout(100)
+            await page.emulate_media(reduced_motion='no-preference');await page.wait_for_timeout(80)
+            assert await page.evaluate('__rosesRenderer.reveal')==1,'Restoring motion must not hide a completed bouquet'
+            report['checks']['completedRevealSurvivesMotionPreferenceChange']=True
+            await slider('appearance','revealDuration',12);await close_panels();await page.wait_for_timeout(80)
+            assert await page.evaluate('__rosesRenderer.reveal')==1,'Increasing entry duration must not rewind a completed bouquet'
+            report['checks']['completedRevealSurvivesEntryDurationChange']=True
+            report['checks']['closeCameraResizeAndPersistence']=True
 
             await page.locator('#hold').click();await touch('touchStart',id=71,position=await petal());await touch('touchEnd',id=71);await count(1)
             await page.evaluate("Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange'));delete document.hidden;document.dispatchEvent(new Event('visibilitychange'));")

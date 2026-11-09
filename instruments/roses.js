@@ -6,7 +6,7 @@ export const definition={
  id:'roses',name:'Roses',layoutMode:'single',commonSoundControls:false,keyboardNotes:true,
  theme:{bg:'#020303',fg:'#bbc7bd',accent:'#df4c8b',muted:'#75857d'},
  defaultSound:{waveform:'roses',roseBody:.32,roseGlass:.72,roseDecay:.56,roseWidth:.18,roseMotion:.22,attack:.02,decay:.35,sustain:.72,release:1.6,gain:.72,cutoff:12000,resonance:.5,echo:.2,delayTime:.39,feedback:.28,glide:.06,detune:0,pan:0,gate:.55,scanRate:'2',bedLevel:.24},
- defaultAppearance:{petalColour:'#d82c75',leafColour:'#82aa8e',petalWidth:1,petalCurl:.7,petalLayers:4,bloomScale:1,bouquetSpread:1,leafSize:1,glyphStyle:'ascii',glyphDensity:1,glyphSize:1,exposure:1,wireContrast:.55,lineWeight:1,glow:.54,glowRadius:.55,sceneScale:1.1,idleMotion:.5,motionRate:1,response:.85,spray:.7,readoutContrast:.88,readoutSize:1.15},
+ defaultAppearance:{petalColour:'#d82c75',leafColour:'#82aa8e',petalWidth:1,petalCurl:.7,petalLayers:4,bloomScale:1,bouquetSpread:1,leafSize:1,glyphStyle:'ascii',glyphDensity:1,glyphSize:1,exposure:1,wireContrast:.55,lineWeight:1,glow:.54,glowRadius:.55,sceneScale:1.1,revealDuration:10.5,idleMotion:.5,motionRate:1,response:.85,spray:.7,readoutContrast:.88,readoutSize:1.15},
  soundControls:[
   range('roseBody','Body level',0,1,.01,'Rose voice','Level of the warm sustained fundamental beneath each petal chime.'),
   range('roseGlass','Glass level',0,1,.01,'Rose voice','Level of the three high, inharmonic partials struck by each petal.'),
@@ -43,20 +43,22 @@ export const definition={
   range('glow','Petal bloom',0,1,.05,'Light','Local light surrounding each luminous glyph; zero removes the halo.'),
   range('glowRadius','Bloom radius',0,1,.05,'Light','Radius of the small glyph halos. Does not blur the underlying characters.'),
   range('sceneScale','Bouquet scale',.65,1.15,.05,'View','Size of the complete bouquet within the canvas.','×'),
+  range('revealDuration','Entry duration',0,12,.5,'Motion','Time to build the stem, branches, leaves and opening flowers. Zero reveals the complete model.','s'),
   range('idleMotion','Ambient motion',0,1.5,.05,'Motion','Independent slow breathing and stem sway of the flower heads.'),
   range('motionRate','Ambient speed',0,2,.05,'Motion','Speed of ambient movement, independent of the musical tempo.','×'),
-  range('response','Petal displacement',0,1.5,.05,'Motion','Amount by which a sounding petal opens and lifts.'),
-  range('spray','Released glyphs',0,1,.05,'Motion','Number of small marks released above a struck petal.'),
+  range('response','Contact bend',0,1.5,.05,'Motion','Amount of flower nod and leaf flex after a note is struck.'),
+  range('spray','Released glyphs',0,1,.05,'Motion','Number of small marks released from a struck petal, leaf or stem.'),
   range('readoutContrast','Annotation contrast',0,1,.05,'Annotations','Brightness of the note, angle and vertex annotations.'),
   range('readoutSize','Annotation size',.8,1.4,.05,'Annotations','Size of the sparse technical readouts.','×')
  ]
 };
-export const rosePetalDegree=(petal,flower=0)=>8+((petal+flower*2)%4);
+export const rosePetalDegree=(petal,flower=0)=>petal>=220?2+(petal-220)%5:8+((petal+flower*2)%4);
+const ZOOM_MIN=.65,ZOOM_MAX=3.2;
 
 export function mount(host,api){
- const surface=createSurface(host,{label:'Roses. Touch individual petals to play chimes. Drag between petals to play different notes. Drag empty space to orbit; use two fingers on empty space or the mouse wheel to zoom.'}),c=surface.ctx,profile=signalRenderProfile(),gate=createFrameGate(profile.mobile?60:90),renderer=new RosesRenderer(surface.canvas,{mobile:profile.mobile});
+ const surface=createSurface(host,{label:'Roses. Touch individual petals for chimes; leaves and stems play lower notes. Drag between petals to play different notes. Drag empty space to orbit; pinch anywhere or use the mouse wheel to zoom. Shift-drag to pan a close view.'}),c=surface.ctx,profile=signalRenderProfile(),gate=createFrameGate(profile.mobile?60:90),renderer=new RosesRenderer(surface.canvas,{mobile:profile.mobile});
  surface.resize=()=>{const r=surface.canvas.getBoundingClientRect(),w=Math.max(1,r.width),h=Math.max(1,r.height),d=renderPixelRatio(w,h,window.devicePixelRatio||1,{maxDpr:1.5,maxPixels:profile.mobile?1000000:1700000});if(surface.canvas.width!==Math.round(w*d)||surface.canvas.height!==Math.round(h*d)||surface.dpr!==d){surface.canvas.width=Math.max(1,Math.round(w*d));surface.canvas.height=Math.max(1,Math.round(h*d));c.setTransform(d,0,0,d,0,0);}Object.assign(surface,{width:w,height:h,dpr:d});renderer.resize(w,h,d);return surface;};surface.resize();
- const contacts=new Map(),provenance=new Map(),seenOnsets=new Set(),energy=new Float32Array(220);let camera={yaw:-.20,pitch:-.08,zoom:1.04},time=0,startTime=null,lastTime=0,scanCursor=0,barCount=0,transport=false,destroyed=false,lastNote=api.quantize(9),lastStatus='',pinch=null;
+ const contacts=new Map(),provenance=new Map(),seenOnsets=new Set(),energy=new Float32Array(256);let camera={yaw:-.20,pitch:-.08,zoom:1.04,offsetX:0,offsetY:0},time=0,startTime=null,lastTime=0,scanCursor=0,barCount=0,transport=false,destroyed=false,lastNote=api.quantize(9),lastStatus='',pinch=null,focus=null,cursor=null,revealProgress=0;
  const appearance=()=>({...definition.defaultAppearance,...api.state.appearance});
  const sourceId=(pointer,petal)=>'roses-touch-'+pointer+'-'+petal;
  function emit(id,amount=1){if(!api.reducedMotion)renderer.emitPetal(id,time,amount);}
@@ -64,32 +66,60 @@ export function mount(host,api){
   if(!hit)return;const id=sourceId(p.id,hit.id);if(q.source&&q.source!==id)api.noteOff(q.source);
   const changed=q.source!==id;q.source=id;q.ownedSources.add(id);q.petal=hit.id;q.flower=hit.flower;q.x=p.x;q.y=p.y;
   const midi=api.quantize(rosePetalDegree(hit.id,hit.flower)),options={velocity:.65+clamp(p.pressure)*.2,pan:clamp((p.x/surface.width-.5)*1.2,-.65,.65)};
-  provenance.set(id,{petal:hit.id,flower:hit.flower});lastNote=midi;
+  provenance.set(id,{petal:hit.id,flower:hit.flower});lastNote=midi;focus={id:hit.id,time};
   if(first||changed){api.noteOn(id,midi,options);energy[hit.id]=Math.max(energy[hit.id],.9);}else api.noteUpdate(id,midi,options);
  }
- const orbitContacts=()=>[...contacts.values()].filter(q=>q.kind==='orbit');
- function resetPinch(){const group=orbitContacts();pinch=group.length>=2?{distance:Math.hypot(group[0].x-group[1].x,group[0].y-group[1].y),zoom:camera.zoom}:null;}
+ // Keep the point beneath the fingers stationary as magnification changes.
+ // Offsets are viewport fractions, so a saved close view survives resize.
+ function constrainView(){const limit=Math.max(0,(camera.zoom-1)*.65);camera.offsetX=clamp(camera.offsetX,-limit,limit);camera.offsetY=clamp(camera.offsetY,-limit,limit);}
+ function setZoom(zoom,anchorX,anchorY,origin=camera,startX=anchorX,startY=anchorY){
+  const next=clamp(zoom,ZOOM_MIN,ZOOM_MAX),ratio=next/origin.zoom;
+  camera.offsetX=anchorX+(.5+origin.offsetX-startX)*ratio-.5;
+  camera.offsetY=anchorY+(.53+origin.offsetY-startY)*ratio-.53;
+  camera.zoom=next;constrainView();
+ }
+ function resetPinch(){const group=[...contacts.values()];pinch=group.length>=2?{ids:[group[0].id,group[1].id],distance:Math.hypot(group[0].x-group[1].x,group[0].y-group[1].y),x:(group[0].x+group[1].x)/2/surface.width,y:(group[0].y+group[1].y)/2/surface.height,camera:{...camera},points:group.map(q=>({x:q.x,y:q.y})),active:group[0].kind!=='petal'&&group[1].kind!=='petal'}:null;}
+ function movePinch(){
+  if(!pinch)return false;const group=pinch.ids.map(id=>contacts.get(id));if(group.some(q=>!q)||pinch.distance<4)return false;
+  const distance=Math.hypot(group[0].x-group[1].x,group[0].y-group[1].y);
+  const bothMoved=group.every((q,i)=>Math.hypot(q.x-pinch.points[i].x,q.y-pinch.points[i].y)>5);
+  if(!pinch.active&&bothMoved&&Math.abs(distance-pinch.distance)>Math.max(14,pinch.distance*.08)){
+   pinch.active=true;for(const q of group){for(const id of q.ownedSources)(api.noteCancel||api.noteOff)(id);q.ownedSources.clear();q.source=null;q.kind='orbit';}
+  }
+  if(!pinch.active)return false;
+  setZoom(pinch.camera.zoom*distance/pinch.distance,(group[0].x+group[1].x)/2/surface.width,(group[0].y+group[1].y)/2/surface.height,pinch.camera,pinch.x,pinch.y);return true;
+ }
  const unbind=bindPointers(surface.canvas,{
-  down(p){const hit=renderer.pick(p.x,p.y),q={id:p.id,kind:hit?'petal':'orbit',x:p.x,y:p.y,source:null,ownedSources:new Set()};contacts.set(p.id,q);if(hit)soundPetal(p,q,hit,true);else resetPinch();},
-  move(p){const q=contacts.get(p.id);if(!q)return;if(q.kind==='petal'){const hit=renderer.pick(p.x,p.y);if(hit)soundPetal(p,q,hit);return;}const dx=p.x-q.x,dy=p.y-q.y;q.x=p.x;q.y=p.y;const group=orbitContacts();if(group.length>=2&&pinch){const distance=Math.hypot(group[0].x-group[1].x,group[0].y-group[1].y);if(pinch.distance>4)camera.zoom=clamp(pinch.zoom*distance/pinch.distance,.65,1.08);}else{camera.yaw+=dx*.007;camera.pitch+=dy*.007;}},
+  down(p){cursor={x:p.x,y:p.y,time};const pan=p.event?.shiftKey,hit=pan?null:renderer.pick(p.x,p.y),q={id:p.id,kind:pan?'pan':hit?'petal':'orbit',x:p.x,y:p.y,source:null,ownedSources:new Set()};contacts.set(p.id,q);if(hit)soundPetal(p,q,hit,true);resetPinch();},
+  move(p){cursor={x:p.x,y:p.y,time};const q=contacts.get(p.id);if(!q)return;const dx=p.x-q.x,dy=p.y-q.y;q.x=p.x;q.y=p.y;if(movePinch())return;
+   if(q.kind==='petal'){const hit=renderer.pick(p.x,p.y);if(hit)soundPetal(p,q,hit);return;}
+   if(q.kind==='pan'){camera.offsetX+=dx/surface.width;camera.offsetY+=dy/surface.height;constrainView();}
+   else{camera.yaw+=dx*.007;camera.pitch+=dy*.007;}
+  },
   up(p){const q=contacts.get(p.id);if(q?.source)api.noteOff(q.source);contacts.delete(p.id);resetPinch();api.save();},
   cancel(p){const q=contacts.get(p.id);if(q)for(const id of q.ownedSources)(api.noteCancel||api.noteOff)(id);contacts.delete(p.id);resetPinch();}
  });
- const wheel=e=>{e.preventDefault();camera.zoom=clamp(camera.zoom*Math.exp(-e.deltaY*.001),.65,1.08);api.save();};surface.canvas.addEventListener('wheel',wheel,{passive:false});
- function drawAnnotations(v,snap){if(!v.readoutContrast)return;const size=(surface.height<400?9.5:12)*v.readoutSize,ink=rgba('#c4c9bd',v.readoutContrast*.8),pad=surface.height<400?12:20;
-  label(c,'ROSA / '+String(renderer.petals.length).padStart(3,'0'),pad,surface.height-pad-11,ink,size);label(c,api.noteName(lastNote)+'  '+(440*Math.pow(2,(lastNote-69)/12)).toFixed(1)+' HZ',pad,surface.height-pad,ink,size);
-  const active=[...snap.voices].filter(q=>q.level>.015).sort((a,b)=>b.started-a.started),selected=active.map(q=>provenance.get(q.id)?.petal).find(q=>q!==undefined)??renderer.petals[Math.min(34,renderer.petals.length-1)]?.id,indices=[selected,renderer.petals[Math.min(72,renderer.petals.length-1)]?.id];
-  let canopyLeft=surface.width,canopyRight=0,canopyBottom=0;for(const point of renderer.hitPoints){canopyLeft=Math.min(canopyLeft,point.x);canopyRight=Math.max(canopyRight,point.x);canopyBottom=Math.max(canopyBottom,point.y);}
-  for(let i=0;i<indices.length;i++){const id=indices[i],p=renderer.projectPetal(id);if(!p?.visible)continue;const text=i?'κ '+(api.state.sound.roseDecay??.56).toFixed(2):'#'+String(id).padStart(3,'0')+' / '+api.noteName(api.quantize(rosePetalDegree(id,p.flower))),textWidth=text.length*size*.63,gap=17;let x=i?canopyRight+gap:canopyLeft-gap,y=p.y+(i?25:-25);const fits=i?x+textWidth<surface.width-pad:x-textWidth>pad;
-   if(!fits){x=i?surface.width-pad-textWidth:pad+textWidth;y=canopyBottom+size*2.5;}
-   y=clamp(y,20,surface.height-55);c.save();c.setLineDash([1,4]);line(c,[[p.x,p.y],[x,y]],ink,.7);c.restore();label(c,text,x,y-7,ink,size,i?'left':'right');}
-  label(c,'θ '+((camera.yaw*180/Math.PI)%360).toFixed(1)+'°',surface.width-pad,surface.height-pad,ink,size,'right');
+ const wheel=e=>{e.preventDefault();const r=surface.canvas.getBoundingClientRect(),delta=e.deltaY*(e.deltaMode===1?16:e.deltaMode===2?surface.height:1);setZoom(camera.zoom*Math.exp(-delta*.0015),(e.clientX-r.left)/surface.width,(e.clientY-r.top)/surface.height,{...camera});api.save();};surface.canvas.addEventListener('wheel',wheel,{passive:false});
+ const hover=e=>{if(e.pointerType==='touch'||contacts.has(e.pointerId))return;const r=surface.canvas.getBoundingClientRect();cursor={x:e.clientX-r.left,y:e.clientY-r.top,time};};surface.canvas.addEventListener('pointermove',hover,{passive:true});
+ function drawAnnotations(v,snap){if(!v.readoutContrast)return;const size=(surface.height<400?9.5:12)*v.readoutSize,pad=surface.height<400?12:20,opacity=v.readoutContrast*.8;
+  // The reference begins with a calibrated stem before its branches unfold.
+  if(renderer.reveal<.43&&renderer.intro){const fade=clamp((.43-renderer.reveal)/.1);for(let n=0;n<=10;n++){const y=-2.02+n*.357;if(n/10>renderer.intro.stem)continue;const p=renderer.transform(0,y,0);label(c,(n/10).toFixed(2),p.x+8,p.y,rgba('#82aa8e',opacity*fade*.75),size*.78);}}
+  if(renderer.reveal>.72){const fade=clamp((renderer.reveal-.72)/.28);label(c,'ROSA / '+String(renderer.petals.length).padStart(3,'0'),pad,surface.height-pad-11,rgba('#c4c9bd',opacity*fade),size);label(c,api.noteName(lastNote)+'  '+(440*Math.pow(2,(lastNote-69)/12)).toFixed(1)+' HZ',pad,surface.height-pad,rgba('#c4c9bd',opacity*fade),size);label(c,'AZ '+((camera.yaw*180/Math.PI)%360).toFixed(1)+'° / '+camera.zoom.toFixed(2)+'×',surface.width-pad,surface.height-pad,rgba('#c4c9bd',opacity*fade),size,'right');}
+  const active=snap.voices.filter(q=>q.level>.015&&provenance.has(q.id)).sort((a,b)=>b.started-a.started),selected=active.length?provenance.get(active[0].id).petal:focus?.id;
+  if(active.length)focus={id:selected,time};
+  const strength=focus?clamp(1-(time-focus.time)/1.5):0,p=renderer.projectInteraction?.(selected)||renderer.projectPetal(selected);
+  if(p?.visible&&strength>0&&p.x>pad&&p.x<surface.width-pad&&p.y>pad&&p.y<surface.height-45){
+   const text='#'+String(selected).padStart(3,'0')+' / '+api.noteName(api.quantize(rosePetalDegree(selected,p.flower))),width=Math.max(text.length,12)*size*.63,side=p.x<surface.width*.5?1:-1,x=clamp(p.x+side*70,pad+(side<0?width:0),surface.width-pad-(side>0?width:0)),y=clamp(p.y-45,24,surface.height-65),col=rgba('#c4c9bd',opacity*strength);
+   c.save();c.setLineDash([1,4]);line(c,[[p.x,p.y],[x,y]],col,.7);c.restore();label(c,text,x,y-7,col,size,side>0?'left':'right');label(c,'A '+clamp(energy[selected]||0).toFixed(2)+' / θ '+((p.bend||0)*180/Math.PI).toFixed(1)+'°',x,y+size*.85,col,size*.88,side>0?'left':'right');
+  }
+  if(cursor){const fade=contacts.size?1:clamp(1-(time-cursor.time)/1.5);if(fade){const r=clamp(Math.min(surface.width,surface.height)*.035,10,28),len=r*.3;c.beginPath();for(const x of[-1,1])for(const y of[-1,1]){const px=cursor.x+x*r,py=cursor.y+y*r;c.moveTo(px-x*len,py);c.lineTo(px,py);c.lineTo(px,py-y*len);}c.strokeStyle=rgba('#dbe1d3',opacity*fade*.7);c.lineWidth=.85;c.stroke();}}
  }
+
  return{
   frame(t,dt){if(destroyed||!gate.due(t*1000))return;time=t;if(startTime===null)startTime=t;dt=Math.min(.1,lastTime?t-lastTime:dt);lastTime=t;surface.resize();const v=appearance(),snap=api.audio.snapshot();
    for(let i=0;i<energy.length;i++)energy[i]*=Math.exp(-dt*3.2);
-   const audible=new Set();for(const voice of snap.voices){const p=provenance.get(voice.id),onset=voice.id+':'+voice.started;audible.add(onset);if(p){energy[p.petal]=Math.max(energy[p.petal],clamp(voice.level*2));if(!seenOnsets.has(onset)&&voice.level>.002){emit(p.petal);seenOnsets.add(onset);}}}for(const onset of seenOnsets)if(!audible.has(onset))seenOnsets.delete(onset);
-   const reveal=api.reducedMotion?1:clamp((t-startTime)/2.8);renderer.draw(v,t,camera,energy,reveal,api.reducedMotion);
+   const audible=new Set();for(const voice of snap.voices){const p=provenance.get(voice.id),onset=voice.id+':'+voice.started;audible.add(onset);if(p){energy[p.petal]=Math.max(energy[p.petal],clamp(voice.level*2));if(!seenOnsets.has(onset)&&voice.level>.002){if(!api.reducedMotion)renderer.strike(p.petal,time,.75);emit(p.petal);seenOnsets.add(onset);}}}for(const onset of seenOnsets)if(!audible.has(onset))seenOnsets.delete(onset);
+   revealProgress=Math.max(revealProgress,api.reducedMotion||v.revealDuration<=0?1:clamp((t-startTime)/v.revealDuration));renderer.draw(v,t,camera,energy,revealProgress,api.reducedMotion);
    for(const q of contacts.values())if(q.kind==='petal'&&t-(q.lastShed??0)>.32){emit(q.petal,.35);q.lastShed=t;}
    drawAnnotations(v,snap);const latest=snap.voices.filter(q=>q.level>.01).sort((a,b)=>b.started-a.started)[0];if(latest)lastNote=latest.midi;const status=api.noteName(lastNote)+' · '+snap.voices.filter(q=>q.gate).length+' voices';if(lastStatus!==status){api.setStatus(status);lastStatus=status;}
    for(const id of provenance.keys())if(!snap.voices.some(q=>q.id===id)&&!api.audio.sources?.has(id)&&![...contacts.values()].some(q=>q.source===id))provenance.delete(id);
@@ -97,7 +127,7 @@ export function mount(host,api){
   onStep(step,when){const interval=Number(api.state.sound.scanRate)||2;if(step%interval)return;const index=scanCursor++%5,candidates=renderer.petals.filter(p=>p.flower===index),entry=candidates[(scanCursor*3)%Math.max(1,candidates.length)];if(!entry)return;const petal=entry.id,flower=entry.flower,id='roses-seq-'+petal,midi=api.quantize(rosePetalDegree(petal,flower));provenance.set(id,{petal,flower});api.audio.pulse(id,midi,{...api.state.sound,velocity:.66,pan:ROSE_CENTRES[flower][0]*.4},when,60/api.state.bpm/4*interval*api.state.sound.gate);if(step===0){const chord=[[3,5,7],[1,5,8],[0,4,7,10]][Math.floor(barCount++/2)%3];if(api.state.sound.bedLevel>0)for(const degree of chord)api.audio.pulse('roses-bed-'+degree,api.quantize(degree),{...api.state.sound,roseLayer:1,roseBody:.9,attack:.8,release:2,gain:api.state.sound.bedLevel,velocity:.65},when,60/api.state.bpm*3.5);}},
   setPlaying(playing){if(playing&&!transport){scanCursor=0;barCount=0;}transport=playing;},
   update(){},cancel(){for(const q of contacts.values())if(q.source)(api.noteCancel||api.noteOff)(q.source);for(const id of provenance.keys())(api.noteCancel||api.noteOff)(id);contacts.clear();pinch=null;},
-  getData(){return{camera:{...camera}};},setData(data){if(data?.camera){const p=data.camera;if(Number.isFinite(p.yaw))camera.yaw=p.yaw;if(Number.isFinite(p.pitch))camera.pitch=p.pitch;if(Number.isFinite(p.zoom))camera.zoom=clamp(p.zoom,.65,1.08);}},
-  destroy(){destroyed=true;unbind();surface.canvas.removeEventListener('wheel',wheel);for(const id of provenance.keys())(api.noteCancel||api.noteOff)(id);renderer.dispose();surface.destroy();}
+  getData(){return{camera:{...camera}};},setData(data){if(data?.camera){const p=data.camera;if(Number.isFinite(p.yaw))camera.yaw=p.yaw;if(Number.isFinite(p.pitch))camera.pitch=p.pitch;if(Number.isFinite(p.zoom))camera.zoom=clamp(p.zoom,ZOOM_MIN,ZOOM_MAX);camera.offsetX=Number.isFinite(p.offsetX)?p.offsetX:0;camera.offsetY=Number.isFinite(p.offsetY)?p.offsetY:0;constrainView();}},
+  destroy(){destroyed=true;unbind();surface.canvas.removeEventListener('wheel',wheel);surface.canvas.removeEventListener('pointermove',hover);for(const id of provenance.keys())(api.noteCancel||api.noteOff)(id);renderer.dispose();surface.destroy();}
  };
 }
