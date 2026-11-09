@@ -57,6 +57,24 @@ test('unlock is gesture-bound and a released contact cannot sound after pending 
   await f.audio.dispose();assert.equal(f.clears,1);
 });
 
+test('Roses petals retain source expression, independent bed layering and full lifecycle cleanup',async()=>{
+  const f=fixture();await f.audio.start();f.audio.configure({waveform:'roses',roseGlass:.72,roseDecay:.56},{replace:true});
+  f.audio.noteOn('petal',64,{pan:.4,cutoff:8500});f.audio.noteOn('bed',55,{roseLayer:1});
+  const petal=f.audio._voices.find(v=>v.id==='petal'),bed=f.audio._voices.find(v=>v.id==='bed');
+  assert.ok(petal.roses&&bed.roses);assert.equal(petal.engine,petal.roses);assert.equal(petal.modulator,null);
+  assert.ok(petal.roses.glass[0].gain.gain.value>0);assert.equal(bed.roses.glass[0].gain.gain.value,0);
+  const initialAttack=petal.roses.glass[0].anchorTime;f.advance(.8);f.audio.configure({roseWidth:.8,roseGlass:.9});
+  assert.equal(petal.roses.glass[0].anchorTime,initialAttack,'Mix/width edits never retrigger glass');
+  assert.equal(petal.options.pan,.4);assert.equal(petal.options.cutoff,8500);assert.equal(bed.options.roseLayer,1);
+  f.audio.configure({roseDecay:1});assert.ok(petal.roses.glass[0].anchorLevel<.5,'Decay edits continue the existing tail');
+  f.audio.noteUpdate('petal',67);assert.ok(Math.abs(petal.roses.glass[0].oscillator.frequency.value-midiFrequency(67)*4)<1e-8);
+  f.audio.setPerformance({hold:true});f.audio.noteOff('petal');assert.equal(f.audio.sources.has('petal'),true);
+  f.audio.noteOff('bed',{force:true});f.audio.setPerformance({hold:false});f.advance(2);
+  assert.equal(f.audio.sources.size,0);assert.equal(f.audio._voices.length,0);
+  assert.ok(petal.roses.sources.every(source=>source.stopped!==undefined&&source.disconnected));
+  await f.audio.dispose();
+});
+
 test('dispose while resume is pending cannot restart synthesis or scheduling',async()=>{
   const f=fixture({suspended:true}),ready=f.audio.start();f.audio.noteOn('touch',60);await f.audio.dispose();f.unblock();
   assert.equal(await ready,false);assert.equal(f.audio.sources.size,0);assert.equal(f.audio.context.state,'closed');assert.equal(f.clears,1);
@@ -230,6 +248,20 @@ test('eligible ending gesture auditions an unheard completed tap without startin
  const f=fixture({suspended:true,resumeMode:'gesture'}),first=f.audio.start();f.audio.noteOn('first-tap',60,{attack:.01,release:.15});
  const ending=f.audio.start({completeGesture:true});f.audio.noteOff('first-tap');assert.equal(f.audio.sources.size,0);
  assert.equal(await ending,true);assert.equal(await first,true);assert.equal(f.audio._voices.length,1);assert.equal(f.audio._voices[0].kind,'pulse');assert.equal(f.audio.transport.playing,false);assert.ok(f.audio._voices[0].releaseAt-f.audio.now<=.16);f.advance(.5);assert.equal(f.audio.snapshot().voices.length,0);await f.audio.dispose();
+});
+
+test('an eligible tap released in its first audio quantum still produces a bounded audible attack',async()=>{
+ const f=fixture();await f.audio.start();f.audio.configure({waveform:'roses',attack:.02,release:.15});
+ f.audio.noteOn('quantum-tap',64);assert.equal(f.audio._voices[0].start,f.audio.now);
+ const ending=f.audio.start({completeGesture:true});f.audio.noteOff('quantum-tap');await ending;
+ assert.equal(f.audio.sources.size,0);assert.equal(f.audio.transport.playing,false);
+ const audition=f.audio._voices.find(voice=>voice.kind==='pulse');assert.ok(audition);
+ assert.ok(audition.releaseAt-audition.start>=.07&&audition.releaseAt-audition.start<=.16);
+ f.advance(.03);assert.ok(f.audio.snapshot().voices.some(voice=>voice.id==='quantum-tap'&&voice.level>0));
+ f.advance(.5);assert.equal(f.audio._voices.length,0);await f.audio.dispose();
+ const cancelled=fixture();await cancelled.audio.start();cancelled.audio.noteOn('cancel',64);
+ const eligible=cancelled.audio.start({completeGesture:true});cancelled.audio.noteOff('cancel',{force:true});await eligible;
+ assert.equal(cancelled.audio._voices.some(voice=>voice.kind==='pulse'),false);await cancelled.audio.dispose();
 });
 
 test('completed tap activation expires and cancellation, panic and source reuse cannot replay it',async()=>{

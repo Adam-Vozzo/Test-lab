@@ -7,7 +7,7 @@ from http.server import SimpleHTTPRequestHandler,ThreadingHTTPServer
 from pathlib import Path
 from playwright.async_api import async_playwright
 ROOT=Path(__file__).resolve().parents[1];OUT=ROOT/'qa/collection-output'
-IDS=['relay','cellular','census','swarm','graticule','waveform','geo','hand','structure','granular','terrain','phase-volume','milkdrop','receiver']
+IDS=['relay','cellular','census','swarm','graticule','waveform','geo','hand','structure','granular','terrain','phase-volume','milkdrop','receiver','roses']
 async def run(base):
  OUT.mkdir(parents=True,exist_ok=True)
  async with async_playwright() as p:

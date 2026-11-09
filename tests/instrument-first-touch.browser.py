@@ -12,7 +12,7 @@ from http.server import ThreadingHTTPServer,SimpleHTTPRequestHandler
 from playwright.async_api import async_playwright
 ROOT=Path(__file__).resolve().parents[1]
 OUT=ROOT/'qa'/'instrument-first-touch'
-POINTS={'relay':(.20,.42),'cellular':(.22,.44),'census':(.24,.32),'swarm':(.75,.42),'graticule':(.25,.50),'waveform':(.75,.30),'geo':(.24,.32),'hand':(.05,.90),'structure':(.35,.59),'granular':(.50,.36),'terrain':(.25,.32),'phase-volume':(.25,.50),'milkdrop':(.35,.52),'receiver':(.50,.50)}
+POINTS={'relay':(.20,.42),'cellular':(.22,.44),'census':(.24,.32),'swarm':(.75,.42),'graticule':(.25,.50),'waveform':(.75,.30),'geo':(.24,.32),'hand':(.05,.90),'structure':(.35,.59),'granular':(.50,.36),'terrain':(.25,.32),'phase-volume':(.25,.50),'milkdrop':(.35,.52),'receiver':(.50,.50),'roses':(.50,.33)}
 PREPARE=r'''async ({kind,policy})=>{
  window.kind=kind;window.policy=policy;window.engine=__qa.audio;window.lastNative='';window.allowEnding=false;window.voices=[];window.nativeEvents=[];window.calls=[];
  const allowed=()=>policy==='fresh'||(policy==='end-only'||allowEnding)&&['pointerup','touchend','click'].includes(lastNative);
@@ -46,12 +46,18 @@ async def run(base):
        filename='app.js' if instrument=='signal' else 'collection.js';expose='({audio:engine,state,scene})' if instrument=='signal' else '({audio,state,controller})'
        await route.fulfill(content_type='text/javascript',body=(ROOT/filename).read_text()+f"\nObject.defineProperty(window,'__qa',{{get:()=>{expose}}});")
       await context.route('**/'+('app.js' if instrument=='signal' else 'collection.js'),host)
+      if instrument=='roses':
+       async def roses_module(route):await route.fulfill(content_type='text/javascript',body=(ROOT/'instruments/roses.js').read_text().replace('renderer=new RosesRenderer','renderer=window.__rosesRenderer=new RosesRenderer'))
+       await context.route('**/instruments/roses.js',roses_module)
       if instrument=='granular':
        async def module(route):await route.fulfill(content_type='text/javascript',body=(ROOT/'instruments/granular.js').read_text().replace('const cloud=new GrainCloud(api.audio),contacts','const cloud=window.__cloud=new GrainCloud(api.audio),contacts'))
        await context.route('**/instruments/granular.js',module)
       page=await context.new_page();page.on('pageerror',lambda error:errors.append(str(error)));await page.goto(base+('/index.html' if instrument=='signal' else '/collection.html#'+instrument));await page.wait_for_function('window.__qa && (__qa.controller || __qa.scene)');await page.wait_for_timeout(100);await page.evaluate(PREPARE,{'kind':instrument,'policy':policy})
       if instrument=='signal':
        point=await page.evaluate("()=>{const b=document.querySelector('#ring-host').getBoundingClientRect();for(let i=0;i<8;i++){const p=__qa.scene.projectSector(i),x=b.x+p.x,y=b.y+p.y;if(__qa.scene.pickClientPoint(x,y,{surfaceOnly:true}))return{x,y};}throw Error('No playable projected ring point');}")
+      elif instrument=='roses':
+       await page.wait_for_function('window.__rosesRenderer?.reveal>=1')
+       point=await page.evaluate("""()=>{const r=__rosesRenderer,b=document.querySelector('#stage canvas').getBoundingClientRect();for(const p of r.hitPoints){if(p.visible&&p.petal>=0&&r.pick(p.x,p.y)?.id===p.petal)return{x:b.x+p.x,y:b.y+p.y};}throw Error('No playable projected rose petal');}""")
       elif instrument in ['hand','structure']:
        point=await page.evaluate("async id=>{const {splitLayout}=await import('./instrument-layout.js'),b=document.querySelector('#stage').getBoundingClientRect(),l=splitLayout(b.width,b.height,__qa.state.appearance,{pad:0,gap:12,stackPortrait:true,portraitRatio:.83}).left;return{x:b.x+l.x+l.w*(id==='hand'?.10:.70),y:b.y+l.y+l.h*(id==='hand'?.90:.59)};}",instrument)
       else:
