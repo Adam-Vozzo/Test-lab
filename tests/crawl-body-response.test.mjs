@@ -10,7 +10,8 @@ test('reactive bodies visibly articulate while feet, contacts and simulation sta
   for(const c of world.creatures){
    c.audio={level:.5,mid:.3,segments:c.segments.map(()=>.5)};
    const before=structuredClone(c),pose=crawlReactivePose(c,1,world.time);
-   assert.deepEqual(c,before);assert.deepEqual(pose.reach,c.reach);assert.deepEqual(pose.segments[0],c.segments[0]);
+   assert.deepEqual(c,before);assert.deepEqual(pose.reach,c.reach);
+   if(c.kind==='beetle')assert.deepEqual(pose.segments,c.segments,'wing response must preserve the rigid beetle carapace');assert.deepEqual(pose.segments[0],c.segments[0]);
    for(const [i,l]of pose.legs.entries()){
     assert.deepEqual(l.foot,c.legs[i].foot);
     assert.ok(Math.abs(distance(l.hip,l.knee)-l.upper)<.001);
