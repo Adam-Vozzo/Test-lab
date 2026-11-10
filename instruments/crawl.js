@@ -7,11 +7,12 @@ const range=(key,label,min,max,step,section,description,unit='')=>({key,label,mi
 export const definition={
  id:'crawl',name:'Crawl',layoutMode:'single',commonSoundControls:false,keyboardNotes:false,performance:{arp:false,hold:false},
  theme:{bg:'#080b0c',fg:'#b4b8af',accent:'#d6ef62',muted:'#727c80'},
- defaultSound:{waveform:'triangle',attack:.014,decay:.3,sustain:.5,release:.7,cutoff:8500,resonance:.8,gain:.68,pan:0,ratio:1,index:0,detune:0,glide:.05,echo:.18,delayTime:.27,feedback:.22,speed:.65,activity:.6,curiosity:.65,population:3},
- defaultAppearance:{panelColour:'#080b0c',traceColour:'#56626b',legendColour:'#bfc7bf',creatureLime:'#d6ef62',creatureViolet:'#7273c8',creatureCoral:'#ef8466',creatureTeal:'#6dd7b4',circuitContrast:.5,panelContrast:.65,controlContrast:.95,legendContrast:.9,legWeight:1,jointSize:1,creatureGlow:.3,limbEnvelope:.2,scopeGain:.8,sceneGrain:.025,sceneGrainSize:1},
+ defaultSound:{waveform:'triangle',attack:.014,decay:.3,sustain:.5,release:.7,cutoff:8500,resonance:.8,gain:.68,pan:0,ratio:1,index:0,detune:0,glide:.05,echo:.18,delayTime:.27,feedback:.22,speed:.65,activity:.6,curiosity:.65,population:5,motionEnergy:.65},
+ defaultAppearance:{panelColour:'#080b0c',traceColour:'#56626b',legendColour:'#bfc7bf',creatureLime:'#d6ef62',creatureViolet:'#7273c8',creatureCoral:'#ef8466',creatureTeal:'#6dd7b4',circuitContrast:.5,panelContrast:.65,controlContrast:.95,legendContrast:.9,legWeight:1,jointSize:1,creatureGlow:.3,limbEnvelope:.2,chroma:.7,colourFlow:.35,anatomyDetail:.75,scopeGain:.8,sceneGrain:.025,sceneGrainSize:1},
  soundControls:[
-  range('population','Creature count',1,5,1,'Behaviour','Number of creatures operating the panel. All four sound circuits remain available.'),
+  range('population','Creature count',1,5,1,'Behaviour','Adds a centipede, spider, beetle, mantis and scorpion, in that order. Every creature can operate all four sound circuits.'),
   range('speed','Walking speed',.15,1,.05,'Behaviour','Speed of travel between controls. Limbs still plant and lift independently.'),
+  range('motionEnergy','Movement variation',0,1,.05,'Behaviour','Strength of each species’ bursts, turns and secondary body movements. Zero keeps a steadier walking pace.'),
   range('activity','Control activity',0,1,.05,'Behaviour','How frequently creatures choose and operate a nearby dial, fader or switch.'),
   range('curiosity','Wander range',0,1,.05,'Behaviour','How readily creatures leave their current area to explore other sound circuits.'),
   range('echo','Delay level',0,.4,.01,'Output','Amount of the circuit voices sent to the shared stereo delay.'),
@@ -26,10 +27,13 @@ export const definition={
   range('controlContrast','Control contrast',.2,1,.05,'Controls','Brightness of dial scales, slider tracks, switch contacts and their active states.'),
   {key:'legendColour',label:'Legend colour',kind:'color',section:'Controls',description:'Colour of the technical labels and parameter readouts.'},
   range('legendContrast','Legend contrast',.15,1,.05,'Controls','Brightness of the control labels, values and circuit annotations.'),
-  {key:'creatureLime',label:'Lime accent',kind:'color',section:'Creatures',description:'Colour of the centipede body, first sound circuit and guide markers.'},
-  {key:'creatureViolet',label:'Violet accent',kind:'color',section:'Creatures',description:'Colour of the centipede legs, second sound circuit and violet spider in larger populations.'},
-  {key:'creatureCoral',label:'Coral accent',kind:'color',section:'Creatures',description:'Colour of the first spider body, third sound circuit and upper output-meter segments.'},
-  {key:'creatureTeal',label:'Teal accent',kind:'color',section:'Creatures',description:'Colour of the second spider body and fourth sound circuit.'},
+  {key:'creatureLime',label:'Lime accent',kind:'color',section:'Creatures',description:'Base lime colour in the creatures’ palette, first sound circuit and guide markers.'},
+  {key:'creatureViolet',label:'Violet accent',kind:'color',section:'Creatures',description:'Base violet colour in the creatures’ palette and second sound circuit.'},
+  {key:'creatureCoral',label:'Coral accent',kind:'color',section:'Creatures',description:'Base coral colour in the creatures’ palette, third sound circuit and upper output-meter segments.'},
+  {key:'creatureTeal',label:'Teal accent',kind:'color',section:'Creatures',description:'Base teal colour in the creatures’ palette and fourth sound circuit.'},
+  range('chroma','Colour variation',0,1,.05,'Creatures','Amount of spectral colour variation along shells, body segments and legs. Zero retains each creature’s base colours.'),
+  range('colourFlow','Colour motion',0,1,.05,'Creatures','Speed of slow colour movement across the creatures. Zero holds the colour pattern still.'),
+  range('anatomyDetail','Anatomy detail',0,1,.05,'Creatures','Visibility of shell facets, wing veins and fine body construction lines. Main silhouettes and legs remain visible.'),
   range('legWeight','Leg stroke weight',.5,1.8,.05,'Creatures','Width of the articulated leg strokes. Does not change reach or walking geometry.','×'),
   range('jointSize','Joint marker size',.5,1.8,.05,'Creatures','Size of the small markers at knees, feet and body joints.','×'),
   range('limbEnvelope','Limb construction lines',0,1,.05,'Creatures','Opacity of the faint outer wire cages around articulated legs.'),
@@ -110,11 +114,11 @@ export function mount(host,api){
  }
  return{
   frame(t,dt){if(destroyed||!gate.due(t*1000))return;dt=Math.min(.05,lastTime?t-lastTime:dt);lastTime=t;surface.resize();const sound=api.state.sound;
-   const actions=world.update(dt,{speed:sound.speed,activity:sound.activity,curiosity:sound.curiosity,population:sound.population,mode,reducedMotion:api.reducedMotion});applyActions(actions);
+   const actions=world.update(dt,{speed:sound.speed,activity:sound.activity,curiosity:sound.curiosity,population:sound.population,motionEnergy:sound.motionEnergy,mode,reducedMotion:api.reducedMotion});applyActions(actions);
    // Population edits may remove a guided creature; its owned source must not
    // outlive the visible body, even while a finger remains on the canvas.
    const living=new Set(world.creatures.map(creature=>creature.id));for(const q of [...contacts.values()])if(!living.has(q.creatureId))end(q.pointer,true);
-   const snapshot=api.audio.snapshot(),patches=[0,1,2,3].map(patch),notes=patches.map(voice=>api.noteName(voice.midi));c.clearRect(0,0,surface.width,surface.height);renderer.draw(c,world,appearance(),snapshot,{time:world.time,mode,selected,playing,step:snapshot.step,notes,patches});
+   const snapshot=api.audio.snapshot(),patches=[0,1,2,3].map(patch),notes=patches.map(voice=>api.noteName(voice.midi));c.clearRect(0,0,surface.width,surface.height);renderer.draw(c,world,appearance(),snapshot,{time:world.time,mode,selected,playing,step:snapshot.step,notes,patches,reducedMotion:api.reducedMotion});
    const status=`${world.creatures.length} AGENTS · ${mode==='guide'?'GUIDE':'WANDER'}`;if(status!==lastStatus){api.setStatus(status);lastStatus=status;}
   },
   onStep(step,when){if(!playing)return;const tick=sequenceTick++,controls=world.panel.controls,contact=controls.find(control=>control.key==='step'&&control.index===step%16);if(contact&&contact.value<.5)return;const cycle=Math.floor(tick/16),arrival=lastArrival!==cycle;lastArrival=cycle;

@@ -1,7 +1,7 @@
 import {TAU,clamp,lerp,rgba} from './kit.js';
-import {crawlControlRadius,crawlControlValue,crawlActuatorPoint} from './crawl-world.js';
+import {crawlControlRadius,crawlControlValue,crawlAnatomy} from './crawl-world.js';
 
-const DEFAULTS={panelColour:'#080b0c',traceColour:'#56626b',legendColour:'#bfc7bf',creatureLime:'#d6ef62',creatureViolet:'#7273c8',creatureCoral:'#ef8466',creatureTeal:'#6dd7b4',circuitContrast:.5,panelContrast:.65,controlContrast:.95,legendContrast:.9,legWeight:1,jointSize:1,creatureGlow:.3,limbEnvelope:.2,scopeGain:.8};
+const DEFAULTS={panelColour:'#080b0c',traceColour:'#56626b',legendColour:'#bfc7bf',creatureLime:'#d6ef62',creatureViolet:'#7273c8',creatureCoral:'#ef8466',creatureTeal:'#6dd7b4',circuitContrast:.5,panelContrast:.65,controlContrast:.95,legendContrast:.9,legWeight:1,jointSize:1,creatureGlow:.3,limbEnvelope:.2,scopeGain:.8,chroma:.7,colourFlow:.35,anatomyDetail:.75};
 const NAMES={pitch:'PITCH',range:'RANGE',shape:'SHAPE',tone:'CUTOFF',resonance:'RESO',decay:'DECAY',detune:'DETUNE',gate:'GATE',division:'DIV',accent:'ACCENT'};
 const num=(value,fallback=0)=>Number.isFinite(value)?value:fallback;
 const stroke=(c,points,colour,width=.7)=>{if(!points.length)return;c.beginPath();for(let i=0;i<points.length;i++){const p=points[i];if(i)c.lineTo(p.x??p[0],p.y??p[1]);else c.moveTo(p.x??p[0],p.y??p[1]);}c.strokeStyle=colour;c.lineWidth=width;c.stroke();};
@@ -10,6 +10,10 @@ const rect=(c,x,y,w,h,colour,width=.7)=>{c.strokeStyle=colour;c.lineWidth=width;
 const dot=(c,x,y,r,colour)=>{c.fillStyle=colour;c.beginPath();c.arc(x,y,r,0,TAU);c.fill();};
 const point=(x,y,angle,distance)=>({x:x+Math.cos(angle)*distance,y:y+Math.sin(angle)*distance});
 const corners=(c,x,y,w,h,size,colour)=>{for(const [xx,yy,sx,sy]of [[x,y,1,1],[x+w,y,-1,1],[x,y+h,1,-1],[x+w,y+h,-1,-1]])stroke(c,[[xx+size*sx,yy],[xx,yy],[xx,yy+size*sy]],colour,.8);};
+const HSL=new Map();
+const colourComponents=hex=>{if(!HSL.has(hex)){if(HSL.size>64)HSL.clear();const s=String(hex).replace('#',''),[r,g,b]=[0,2,4].map(i=>(parseInt(s.slice(i,i+2),16)||0)/255),max=Math.max(r,g,b),min=Math.min(r,g,b),d=max-min,l=(max+min)*.5,h=d?(max===r?(g-b)/d+(g<b?6:0):max===g?(b-r)/d+2:(r-g)/d+4)/6:0;HSL.set(hex,[h,d?d/(1-Math.abs(2*l-1)):0,l]);}return HSL.get(hex);};
+const mixColour=(a,b,t)=>{if(t<=0)return a;if(t>=1)return b;const x=colourComponents(a),y=colourComponents(b),delta=((y[0]-x[0]+1.5)%1)-.5,h=(x[0]+delta*t+1)%1,s=lerp(x[1],y[1],t),l=lerp(x[2],y[2],t),chroma=s*Math.min(l,1-l);return '#'+[0,8,4].map(n=>{const k=(n+h*12)%12,v=l-chroma*Math.max(-1,Math.min(k-3,9-k,1));return Math.round(v*255).toString(16).padStart(2,'0');}).join('');};
+const polygon=(c,points,fill,ink,width=.8)=>{c.beginPath();points.forEach((p,i)=>i?c.lineTo(p[0],p[1]):c.moveTo(p[0],p[1]));c.closePath();if(fill){c.fillStyle=fill;c.fill();}if(ink){c.strokeStyle=ink;c.lineWidth=width;c.stroke();}};
 const controlSize=crawlControlRadius;
 const formatValue=(q,patch,note)=>{const v=q.value,o=patch?.options;if(!o)return v.toFixed(2);if(q.key==='pitch')return note||String(patch.midi);if(q.key==='range')return v<.5?'LOW':'HIGH';if(q.key==='tone')return o.cutoff>=1000?(o.cutoff/1000).toFixed(1)+'k':Math.round(o.cutoff)+'Hz';if(q.key==='resonance')return o.resonance.toFixed(1)+' Q';if(q.key==='decay')return o.decay.toFixed(2)+'s';if(q.key==='detune')return Math.round(o.detune)+'ct';if(q.key==='gate')return Math.round(patch.gate*100)+'%';if(q.key==='division')return({1:'1/16',2:'1/8',3:'3/16',4:'1/4',6:'3/8',8:'1/2'})[patch.division]||String(patch.division);if(q.key==='accent')return Math.round(o.velocity*100)+'%';if(q.key==='shape')return q.lane===0?({sine:'SIN',triangle:'TRI',sawtooth:'SAW',square:'PULSE',wavetable:'WT'})[o.waveform]||'OSC':q.lane===1?'FM '+Number(o.ratio).toFixed(1):q.lane===2?'WT '+Math.round(o.tablePosition*100):'SB '+Math.round((o.sideband??v)*100);return v.toFixed(2);};
 
@@ -91,7 +95,6 @@ export class CrawlRenderer{
   }
   // Readouts use the same mapped parameters as the sound engine.
   const valueY=q.cy-r-Math.max(5,7*u);text(c,formatValue(q,patch,note),q.cx,valueY,Math.max(7,8.3*u),rgba(a.legendColour,a.legendContrast*(.92+flash*.08)),'center');
-  if(flash>.015){c.save();c.strokeStyle=rgba(accent,flash*.7);c.lineWidth=.9;const radius=r+11*u;c.beginPath();c.arc(q.cx,q.cy,radius,-Math.PI*.85,-Math.PI*.85+TAU*clamp(1-since*.7));c.stroke();c.restore();}
  }
  meter(c,panel,a,snapshot,meta){
   const m=panel.meter;if(!m)return;const u=panel.unit,cy=m.y+m.h*.5,x=m.x+2*u,w=m.w-4*u,colour=rgba(a.legendColour,.45*a.legendContrast),wave=snapshot?.waveform,frequency=snapshot?.frequency;
@@ -120,45 +123,95 @@ export class CrawlRenderer{
    c.beginPath();for(let i=0;i<=70;i++){const t=i/70,phase=t*TAU*2;let v=o.waveform==='square'?(Math.sin(phase)>=0?1:-1):o.waveform==='sawtooth'?(t*2%1)*2-1:o.waveform==='triangle'?Math.asin(Math.sin(phase))*2/Math.PI:Math.sin(phase);if(z.lane===1)v=Math.sin(phase+Math.sin(phase*o.ratio)*(o.index||0)*.4);if(z.lane===2)v=lerp(Math.sin(phase),Math.sin(phase)*Math.cos(phase*3),o.tablePosition||0);if(z.lane===3)v=(Math.sin(phase)+Math.sin(phase*1.04)*.3)*.76;const xx=wx+t*ww,yy=base-v*height*.37;if(i)c.lineTo(xx,yy);else c.moveTo(xx,yy);}c.strokeStyle=rgba(a.legendColour,a.controlContrast*.48);c.lineWidth=.7;c.stroke();
   }
  }
+ inkAt(creature,a,position,side,time){
+  const pairs={centipede:[a.creatureLime,a.creatureViolet],spider:[a.creatureCoral,a.creatureViolet],beetle:[a.creatureTeal,a.creatureViolet],mantis:[a.creatureViolet,a.creatureLime],scorpion:[a.creatureCoral,a.creatureTeal]},base=pairs[creature.kind]||pairs.spider,chroma=clamp(a.chroma??.7),flow=clamp(a.colourFlow??.35);
+  if(!chroma)return{primary:base[0],secondary:base[1]};
+  // Spatial phase remains attached to the anatomy. Movement rolls the spectral
+  // sheen slowly through it rather than cycling the whole animal's hue.
+  const phase=position*5.1+num(creature.index)*.73+side*.42+flow*(num(creature.angle)*.68+num(creature.travel)*.004)+Math.sin(time*.6*flow+num(creature.phase))*.62,wave=.5+.5*Math.sin(phase),opposite=.5+.5*Math.sin(phase+2.2),accents=[a.creatureTeal,a.creatureCoral,a.creatureViolet,a.creatureLime],other=accents[(num(creature.index)+1)%4];
+  return{primary:mixColour(base[0],other,chroma*(.10+wave*.61)),secondary:mixColour(base[1],accents[(num(creature.index)+3)%4],chroma*(.12+opposite*.72))};
+ }
  bodySegment(c,s,index,creature,u,primary,secondary,a){
-  const segments=creature.segments||[],next=segments[Math.min(index+1,segments.length-1)],prev=segments[Math.max(0,index-1)],spacing=segments.length>2?Math.max(5*u,Math.hypot(next.x-prev.x,next.y-prev.y)/(index===0||index===segments.length-1?1:2)):11*u;
-  const spider=creature.kind==='spider',length=spider?(index?17:12)*u:Math.min(16*u,spacing*.91),width=spider?(index?16:11)*u:Math.min(15*u,spacing*1.05),angle=num(s.angle,creature.angle);
-  c.save();c.translate(s.x,s.y);c.rotate(angle);const halfL=length*.5,halfW=width*.5;
-  c.fillStyle=rgba(a.panelColour,.74);c.fillRect(-halfL,-halfW,length,width);
-  rect(c,-halfL-2*u,-halfW-2*u,length+4*u,width+4*u,rgba(secondary,.46),.65);
-  rect(c,-halfL,-halfW,length,width,rgba(secondary,.82),.85);
-  const offset=2.8*u;stroke(c,[[-halfL,-halfW],[-halfL+offset,-halfW-offset],[halfL+offset,-halfW-offset],[halfL,-halfW]],rgba(secondary,.25),.55);stroke(c,[[halfL,-halfW],[halfL+offset,-halfW-offset],[halfL+offset,halfW-offset],[halfL,halfW]],rgba(secondary,.32),.55);
-  const inset=Math.max(1.9*u,Math.min(width*.23,3.2*u));
-  if(index%4===1||spider){c.fillStyle=rgba(primary,index%3===0?.66:.20);c.fillRect(-halfL+inset,-halfW+inset,length-inset*2,width-inset*2);}
-  // Open C-shaped rungs keep the segmented exoskeleton transparent.
-  stroke(c,[[halfL-inset,-halfW+inset],[-halfL+inset,-halfW+inset],[-halfL+inset,halfW-inset],[halfL-inset,halfW-inset]],rgba(primary,.98),Math.max(.8,1.25*u));
-  if(index%2===0)stroke(c,[[halfL-inset,halfW-inset],[halfL-inset,halfW-inset*2.1]],rgba(primary,.68),.8*u);
-  const pulse=clamp(creature.pulse||0);if(pulse>.1){c.fillStyle=rgba(primary,pulse*.15);c.fillRect(-halfL,-halfW,length,width);}
+  const anatomy=crawlAnatomy(creature.kind),plate=anatomy.plates[index]||anatomy.plates.at(-1),length=plate.length*u,width=plate.width*u*(1+num(creature.breathe)*Math.sin(index*.73+.8)),halfL=length*.5,halfW=width*.5,detail=clamp(a.anatomyDetail??.75),kind=creature.kind;
+  c.save();c.translate(s.x,s.y);c.rotate(num(s.angle,creature.angle)+num(creature.bodySway)*Math.sin(index*.7+.6)*(kind==='mantis'?.7:.3));
+  if(kind==='beetle'){
+   // Separate faceted elytra meet at a raised longitudinal seam; the shell is
+   // broad and shield-shaped even when the secondary construction is hidden.
+   const outline=[[halfL,-halfW*.52],[halfL*.55,-halfW],[-halfL*.58,-halfW],[-halfL,-halfW*.47],[-halfL,halfW*.47],[-halfL*.58,halfW],[halfL*.55,halfW],[halfL,halfW*.52]];
+   polygon(c,outline,rgba(a.panelColour,.82),rgba(secondary,.88),Math.max(.8,u));
+   for(const side of[-1,1]){
+    polygon(c,[[halfL*.88,0],[halfL*.45,side*halfW*.83],[-halfL*.48,side*halfW*.83],[-halfL*.86,side*halfW*.36],[-halfL*.86,0]],rgba(primary,.08+detail*.035),rgba(primary,.64),.75*u);
+    if(detail>0)for(let k=0;k<4;k++){const xx=lerp(-halfL*.63,halfL*.52,k/3);stroke(c,[[xx,side*halfW*.12],[xx+halfL*.23,side*halfW*.46],[xx+halfL*.12,side*halfW*.73]],rgba(secondary,detail*.53),.6*u);}
+   }
+   stroke(c,[[-halfL*.88,0],[halfL*.90,0]],rgba(primary,.95),Math.max(.8,u));
+   if(index===0)stroke(c,[[halfL*.3,-halfW*.4],[halfL*.7,0],[halfL*.3,halfW*.4]],rgba(primary,.84),.9*u);
+  }else if(kind==='mantis'){
+   if(index===0){polygon(c,[[halfL,0],[-halfL,-halfW],[-halfL*.72,0],[-halfL,halfW]],rgba(a.panelColour,.82),rgba(primary,.94),Math.max(.9,u));if(detail>0)stroke(c,[[-halfL*.5,-halfW*.52],[halfL*.5,0],[-halfL*.5,halfW*.52]],rgba(secondary,detail*.9),.7*u);}
+   else{polygon(c,[[halfL,0],[halfL*.54,-halfW],[-halfL*.70,-halfW*.72],[-halfL,0],[-halfL*.70,halfW*.72],[halfL*.54,halfW]],rgba(a.panelColour,.80),rgba(secondary,.91),.9*u);stroke(c,[[-halfL*.8,0],[halfL*.8,0]],rgba(primary,.92),1*u);if(detail>0){for(const side of[-1,1])stroke(c,[[-halfL*.55,side*halfW*.40],[halfL*.35,side*halfW*.65],[halfL*.6,0]],rgba(primary,detail*.53),.65*u);}}
+  }else if(kind==='scorpion'){
+   polygon(c,[[halfL,0],[halfL*.67,-halfW],[-halfL*.66,-halfW*.83],[-halfL,-halfW*.42],[-halfL,halfW*.42],[-halfL*.66,halfW*.83],[halfL*.67,halfW]],rgba(a.panelColour,.83),rgba(secondary,.85),.85*u);
+   stroke(c,[[-halfL*.7,-halfW*.62],[halfL*.48,-halfW*.72],[halfL*.77,0],[halfL*.48,halfW*.72],[-halfL*.7,halfW*.62]],rgba(primary,.89),Math.max(.8,u));
+   if(detail>0)for(const side of[-1,1])stroke(c,[[-halfL*.6,side*halfW*.32],[halfL*.2,side*halfW*.40],[halfL*.5,0]],rgba(secondary,detail*.62),.6*u);
+  }else{
+   c.fillStyle=rgba(a.panelColour,.74);c.fillRect(-halfL,-halfW,length,width);
+   rect(c,-halfL,-halfW,length,width,rgba(secondary,.90),.85);
+   if(detail>0){rect(c,-halfL-2*u,-halfW-2*u,length+4*u,width+4*u,rgba(secondary,detail*.58),.65);const offset=2.8*u;stroke(c,[[-halfL,-halfW],[-halfL+offset,-halfW-offset],[halfL+offset,-halfW-offset],[halfL,-halfW]],rgba(secondary,detail*.42),.55);stroke(c,[[halfL,-halfW],[halfL+offset,-halfW-offset],[halfL+offset,halfW-offset],[halfL,halfW]],rgba(secondary,detail*.42),.55);}
+   const inset=Math.max(1.9*u,Math.min(width*.23,3.2*u));
+   if(index%4===1||kind==='spider'){c.fillStyle=rgba(primary,index%3===0?.52:.16);c.fillRect(-halfL+inset,-halfW+inset,length-inset*2,width-inset*2);}
+   stroke(c,[[halfL-inset,-halfW+inset],[-halfL+inset,-halfW+inset],[-halfL+inset,halfW-inset],[halfL-inset,halfW-inset]],rgba(primary,.98),Math.max(.8,1.25*u));
+   if(index%2===0)stroke(c,[[halfL-inset,halfW-inset],[halfL-inset,halfW-inset*2.1]],rgba(primary,.68),.8*u);
+  }
+  const pulse=clamp(creature.pulse||0);if(pulse>.1){stroke(c,[[-halfL*.45,0],[halfL*.45,0]],rgba(primary,pulse*.65),Math.max(.8,u));}
   c.restore();
  }
+ appendages(c,creature,a,u,time,weight,joint){
+  const tail=creature.tail||[];
+  if(tail.length>1){
+   for(let i=0;i<tail.length-1;i++){
+    const p=tail[i],q=tail[i+1],ink=this.inkAt(creature,a,1+i/tail.length*.8,1,time),angle=Math.atan2(q.y-p.y,q.x-p.x),length=Math.hypot(q.x-p.x,q.y-p.y),width=lerp(6.8,2.4,i/(tail.length-1))*u;
+    c.save();c.translate((p.x+q.x)*.5,(p.y+q.y)*.5);c.rotate(angle);polygon(c,[[-length*.5,-width*.43],[length*.29,-width*.5],[length*.5,0],[length*.29,width*.5],[-length*.5,width*.43]],rgba(a.panelColour,.86),rgba(ink.secondary,.85),weight);stroke(c,[[-length*.36,0],[length*.23,0]],rgba(ink.primary,.87),Math.max(.8,u));if(a.anatomyDetail>0)stroke(c,[[-length*.20,-width*.33],[-length*.05,0],[-length*.20,width*.33]],rgba(ink.primary,a.anatomyDetail*.6),.6*u);c.restore();dot(c,p.x,p.y,.9*joint,rgba(ink.primary,.82));
+   }
+   const end=tail.at(-1),before=tail.at(-2),angle=Math.atan2(end.y-before.y,end.x-before.x),ink=this.inkAt(creature,a,1.8,1,time);c.save();c.translate(end.x,end.y);c.rotate(angle);polygon(c,[[-4*u,-3*u],[7*u,0],[-4*u,3*u],[-1*u,0]],rgba(ink.primary,.13),rgba(ink.primary,.91),.85*u);c.restore();
+  }
+  for(const claw of creature.claws||[]){
+   const {base,knee,tip,innerTip,outerTip,side}=claw;if(!base||!knee||!tip)continue;const ink=this.inkAt(creature,a,-.20,side,time);
+   stroke(c,[base,knee,tip],'rgba(0,0,0,.75)',weight+1.3*u);stroke(c,[base,knee],rgba(ink.secondary,.88),weight);stroke(c,[knee,tip],rgba(ink.primary,.83),weight);
+   dot(c,knee.x,knee.y,1.2*joint,rgba(ink.primary,.93));dot(c,tip.x,tip.y,joint,rgba(ink.secondary,.83));
+   if(claw.kind==='pincer'){
+    const dx=tip.x-knee.x,dy=tip.y-knee.y,length=Math.hypot(dx,dy)||1,nx=-dy/length,ny=dx/length,shoulder={x:tip.x-dx/length*8*u,y:tip.y-dy/length*8*u};
+    const inner=innerTip||tip,outer=outerTip||tip;polygon(c,[[shoulder.x+nx*5*u,shoulder.y+ny*5*u],[tip.x+nx*7*u,tip.y+ny*7*u],[outer.x,outer.y],[tip.x+nx*2*u,tip.y+ny*2*u],[inner.x,inner.y],[shoulder.x-nx*4*u,shoulder.y-ny*4*u]],rgba(ink.primary,.065),rgba(ink.primary,.9),weight);
+    if(a.anatomyDetail>0)stroke(c,[shoulder,tip],rgba(ink.secondary,a.anatomyDetail*.9),.65*u);
+   }else{
+    if(innerTip)stroke(c,[tip,innerTip],rgba(ink.primary,.86),weight);
+    if(outerTip)stroke(c,[tip,outerTip],rgba(ink.secondary,.75),weight);
+    if(a.anatomyDetail>0){const dx=tip.x-knee.x,dy=tip.y-knee.y,length=Math.hypot(dx,dy)||1;for(let k=0;k<4;k++){const t=.25+k*.16,x=lerp(knee.x,tip.x,t),y=lerp(knee.y,tip.y,t);stroke(c,[[x,y],[x-dy/length*side*3.6*u+dx/length*1.5*u,y+dx/length*side*3.6*u+dy/length*1.5*u]],rgba(ink.primary,a.anatomyDetail*.70),.65*u);}}
+   }
+  }
+ }
  creature(c,creature,a,u,time,selected){
-  const palette=[[a.creatureLime,a.creatureViolet],[a.creatureCoral,'#b26881'],[a.creatureTeal,'#548ca8'],[a.creatureViolet,a.creatureLime],[a.creatureLime,'#537ea6']],colour=palette[Math.abs(creature.colourIndex??creature.id??0)%palette.length],primary=colour[0],secondary=colour[1],legs=creature.legs||[],weight=(a.legWeight??1)*Math.max(.65,u*.86),joint=Math.max(.7,u*(a.jointSize??1));
+  const legs=creature.legs||[],weight=(a.legWeight??1)*Math.max(.65,u*.86),joint=Math.max(.7,u*(a.jointSize??1));
   c.save();c.lineCap='round';c.lineJoin='round';
-  // Fine outer quadrilaterals echo the reference's articulated wire cages.
-  for(const leg of legs){const hip=leg.hip,knee=leg.knee,foot=leg.foot;if(!hip||!knee||!foot)continue;const dx=foot.x-hip.x,dy=foot.y-hip.y,d=Math.hypot(dx,dy)||1,off=5*u,side=leg.side||1,p1={x:knee.x-dy/d*off*side,y:knee.y+dx/d*off*side},p2={x:foot.x-dy/d*off*side,y:foot.y+dx/d*off*side};stroke(c,[hip,p1,p2,foot],rgba(secondary,.12+(a.limbEnvelope??.2)*.12),.55);}
+  for(const leg of legs){const hip=leg.hip,knee=leg.knee,foot=leg.foot;if(!hip||!knee||!foot)continue;const ink=this.inkAt(creature,a,num(leg.segment)/(creature.segments.length||1),leg.side,time),dx=foot.x-hip.x,dy=foot.y-hip.y,d=Math.hypot(dx,dy)||1,off=5*u,side=leg.side||1,p1={x:knee.x-dy/d*off*side,y:knee.y+dx/d*off*side},p2={x:foot.x-dy/d*off*side,y:foot.y+dx/d*off*side};stroke(c,[hip,p1,p2,foot],rgba(ink.secondary,(a.limbEnvelope??.2)*.6),.55);}
   for(const leg of legs){const hip=leg.hip,knee=leg.knee,foot=leg.foot;if(!hip||!knee||!foot)continue;
+   const pos=num(leg.segment)/(creature.segments.length||1),ink=this.inkAt(creature,a,pos,leg.side,time),toe=this.inkAt(creature,a,pos+.28,leg.side,time);
    stroke(c,[hip,knee,foot],'rgba(0,0,0,.82)',weight+1.5*u);
-   if(a.creatureGlow>0){c.shadowColor=rgba(secondary,a.creatureGlow*.72);c.shadowBlur=3*u*a.creatureGlow;}
-   stroke(c,[hip,knee,foot],rgba(secondary,leg.planted?.83:.52),weight);c.shadowBlur=0;
-   const ratio=leg.planted?1:.65;dot(c,knee.x,knee.y,1.25*joint,rgba(primary,.98*ratio));dot(c,hip.x,hip.y,.85*joint,rgba(secondary,.8));dot(c,foot.x,foot.y,1.25*joint,rgba(primary,.92*ratio));
-   const dx=foot.x-knee.x,dy=foot.y-knee.y,d=Math.hypot(dx,dy)||1,tip={x:foot.x+dx/d*3*u,y:foot.y+dy/d*3*u};stroke(c,[foot,tip],rgba(primary,.56),.65);
-   if(leg.planted&&num(leg.index)%3===0)stroke(c,[[foot.x-2*u,foot.y+3*u],[foot.x+2*u,foot.y+3*u]],rgba(primary,.22),.5);
+   if(a.creatureGlow>0){c.shadowColor=rgba(ink.secondary,a.creatureGlow*.72);c.shadowBlur=3*u*a.creatureGlow;}
+   stroke(c,[hip,knee],rgba(ink.secondary,leg.planted?.87:.60),weight);stroke(c,[knee,foot],rgba(toe.secondary,leg.planted?.87:.60),weight);c.shadowBlur=0;
+   const ratio=leg.planted?1:.72;dot(c,knee.x,knee.y,1.25*joint,rgba(ink.primary,.98*ratio));dot(c,hip.x,hip.y,.85*joint,rgba(ink.secondary,.8));dot(c,foot.x,foot.y,1.25*joint,rgba(toe.primary,.94*ratio));
+   const dx=foot.x-knee.x,dy=foot.y-knee.y,d=Math.hypot(dx,dy)||1,tip={x:foot.x+dx/d*3*u,y:foot.y+dy/d*3*u};stroke(c,[foot,tip],rgba(toe.primary,.61),.65);
+   if(leg.planted&&num(leg.index)%3===0)stroke(c,[[foot.x-2*u,foot.y+3*u],[foot.x+2*u,foot.y+3*u]],rgba(toe.primary,.22),.5);
   }
-  const segs=creature.segments||[{x:creature.x,y:creature.y,angle:creature.angle}];
-  stroke(c,segs,rgba(secondary,.25),3*u);for(let i=segs.length-1;i>=0;i--)this.bodySegment(c,segs[i],i,creature,u,primary,secondary,a);
+  this.appendages(c,creature,a,u,time,weight,joint);
+  const segs=creature.segments||[{x:creature.x,y:creature.y,angle:creature.angle}],headInk=this.inkAt(creature,a,0,0,time);
+  stroke(c,segs,rgba(headInk.secondary,.25),2*u);
+  for(let i=segs.length-1;i>=0;i--){const ink=this.inkAt(creature,a,i/segs.length,0,time);this.bodySegment(c,segs[i],i,creature,u,ink.primary,ink.secondary,a);}
   const head=segs[0]||creature;
-  for(const feeler of creature.feelers||[]){stroke(c,[feeler.base,feeler.knee,feeler.tip],rgba(secondary,.52),weight*.78);dot(c,feeler.tip.x,feeler.tip.y,.95*joint,rgba(primary,.7));}
+  for(const feeler of creature.feelers||[]){stroke(c,[feeler.base,feeler.knee,feeler.tip],rgba(headInk.secondary,.61),weight*.78);dot(c,feeler.tip.x,feeler.tip.y,.95*joint,rgba(headInk.primary,.75));}
   const reach=creature.reach;if(reach?.base&&reach?.knee&&reach?.tip){
-   stroke(c,[reach.base,reach.knee,reach.tip],'rgba(0,0,0,.7)',3.2*u);stroke(c,[reach.base,reach.knee,reach.tip],rgba(primary,.88),1.2*u);dot(c,reach.knee.x,reach.knee.y,1.7*joint,rgba(primary,.9));
-   const r=2.3*u;rect(c,reach.tip.x-r,reach.tip.y-r,r*2,r*2,rgba('#e5f0be',.95),.8);
-   if(reach.contact){c.strokeStyle=rgba(primary,.8);c.lineWidth=.8;c.beginPath();c.arc(reach.tip.x,reach.tip.y,7*u,0,TAU);c.stroke();for(let i=0;i<4;i++){const aa=i/4*TAU+time*.4;stroke(c,[point(reach.tip.x,reach.tip.y,aa,10*u),point(reach.tip.x,reach.tip.y,aa,13*u)],rgba(primary,.38),.7);}}
+   // An operating limb is part of the animal: no hand icon or contact overlay.
+   const ink=this.inkAt(creature,a,.12,1,time);stroke(c,[reach.base,reach.knee,reach.tip],'rgba(0,0,0,.82)',weight+1.5*u);stroke(c,[reach.base,reach.knee,reach.tip],rgba(ink.secondary,.87),weight);dot(c,reach.knee.x,reach.knee.y,1.25*joint,rgba(ink.primary,.98));dot(c,reach.tip.x,reach.tip.y,1.25*joint,rgba(ink.primary,.94));
   }
-  if(selected===creature.id){const s=20*u;corners(c,head.x-s,head.y-s,s*2,s*2,5*u,rgba(primary,.48));}
+  if(selected===creature.id){const size=20*u;corners(c,head.x-size,head.y-size,size*2,size*2,5*u,rgba(headInk.primary,.48));}
   c.restore();
  }
  guides(c,world,a,u,time){
@@ -172,9 +225,7 @@ export class CrawlRenderer{
   this.meter(c,panel,a,snapshot,meta);this.response(c,panel,a,meta);this.guides(c,world,a,u,time);
   if(Array.isArray(meta.notes))for(const z of panel.zones)text(c,meta.notes[z.lane]||'',z.x+z.w*.72,z.y+7*u,Math.max(7.2,8*u),rgba(a.legendColour,a.legendContrast*.64),'right');
   const creatures=world.creatures||[];
-  for(const creature of creatures)this.creature(c,creature,a,num(creature.scale,u),time,meta.selected);
-  // The visible action readout belongs to the actuator, not a detached HUD.
-  for(const creature of creatures){if(creature.state!=='operate'&&creature.state!=='recover')continue;const q=panel.controls.find(v=>v.id===creature.targetId);if(!q||time-num(q.changedAt,-100)>1.25)continue;const opacity=clamp(1-(time-q.changedAt)/1.25),x=clamp(q.cx+16*u,12,w-110*u),y=clamp(q.cy-20*u,66,h-28*u),actuator=crawlActuatorPoint(q,u,time);stroke(c,[[actuator.x+3*u,actuator.y-3*u],[x-3*u,y]],rgba(a.creatureLime,opacity*.4),.55);text(c,(NAMES[q.key]||'STEP')+' '+formatValue(q,meta.patches?.[q.lane],meta.notes?.[q.lane]),x,y,Math.max(7,8*u),rgba(a.creatureLime,opacity*.9));}
+  for(const creature of creatures)this.creature(c,creature,meta.reducedMotion?{...a,colourFlow:0}:a,num(creature.scale,u),time,meta.selected);
   text(c,'AGENTS / '+String(creatures.length).padStart(2,'0'),14,24,Math.max(8.5,9*u),rgba(a.legendColour,a.legendContrast*.73));
   const changed=panel.controls.reduce((n,q)=>n+(time-num(q.changedAt,-100)<.7?1:0),0);if(w>620)text(c,'ACT '+String(changed).padStart(2,'0'),14+Math.max(112,124*u),24,Math.max(7.5,8*u),rgba(a.legendColour,a.legendContrast*.55));
  }

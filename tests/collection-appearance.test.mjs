@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {FOURTH_RELEASE_APPEARANCE,FIRST_RELEASE_APPEARANCE,THIRD_RELEASE_APPEARANCE,THIRD_RELEASE_SOUND,SECOND_RELEASE_APPEARANCE,APPEARANCE_REVISION,migrateAppearance,FIRST_RELEASE_SOUND,SECOND_RELEASE_SOUND,SOUND_REVISION,migrateSound,preserveStudySessions} from '../instruments/appearance-migration.js';
+import {FOURTH_RELEASE_SOUND,FOURTH_RELEASE_APPEARANCE,FIRST_RELEASE_APPEARANCE,THIRD_RELEASE_APPEARANCE,THIRD_RELEASE_SOUND,SECOND_RELEASE_APPEARANCE,APPEARANCE_REVISION,migrateAppearance,FIRST_RELEASE_SOUND,SECOND_RELEASE_SOUND,SOUND_REVISION,migrateSound,preserveStudySessions} from '../instruments/appearance-migration.js';
 
 test('untouched first-release looks adopt the revised reference defaults across all instruments',()=>{
   for(const [id,old] of Object.entries(FIRST_RELEASE_APPEARANCE)){
@@ -74,4 +74,15 @@ test('Roses revision5 upgrades only its untouched fourth-release appearance and 
  }
  assert.deepEqual(migrateAppearance('roses',{appearanceRevision:5,appearance:{...old}},revised),old);
  assert.deepEqual(migrateAppearance('cellular',{appearanceRevision:4,appearance:{...old}},revised),old,'other instruments are not swept into the Roses migration');
+});
+
+test('Crawl adds the full colony only to untouched sound defaults, preserving customized sessions',()=>{
+ const old=FOURTH_RELEASE_SOUND.crawl,next={...old,population:5,motionEnergy:.65};
+ const saved={soundRevision:4,sound:{...old},appearance:{creatureLime:'#cf4488'},data:{controls:{'v0-tone':.81},guides:[{creatureId:'crawl-0',x:.3,y:.8}]}};
+ const original=structuredClone(saved);
+ assert.deepEqual(migrateSound('crawl',saved,next),next);
+ assert.deepEqual(saved,original,'the migration does not mutate the patch, palette or guides');
+ for(const sound of [{...old,population:2},{...old,echo:.11},{...old,motionEnergy:.25}])assert.deepEqual(migrateSound('crawl',{soundRevision:4,sound},next),sound);
+ assert.deepEqual(migrateSound('crawl',{soundRevision:5,sound:old},next),old);
+ assert.deepEqual(migrateSound('roses',{soundRevision:4,sound:old},next),old);
 });

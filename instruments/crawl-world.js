@@ -10,6 +10,19 @@ const finite=(v,fallback)=>Number.isFinite(v)?v:fallback;
 const creatureScale=panel=>Math.min(panel.unit*1.22,panel.arena.w/240,panel.arena.h/260);
 const distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
 
+export const CRAWL_SPECIES=Object.freeze(['centipede','spider','beetle','mantis','scorpion']);
+const plates=(sizes,shape)=>sizes.map(([length,width])=>({length,width,shape}));
+const ANATOMY={
+ centipede:{segments:13,gap:12,hipWidth:5.8,attachments:Array.from({length:11},(_,i)=>i+1),foreAft:Array(11).fill(11),span:38,upper:26,lower:29,bend:1,stride:14,swing:.24,lift:7,turn:2.8,speed:.98,cadence:1.4,burst:.25,pause:.13,weave:.27,antenna:[16,12,.30],plates:plates(Array.from({length:13},(_,i)=>[10.5,13-i*.23]),'rung')},
+ spider:{segments:3,gap:14,hipWidth:8,attachments:[0,0,1,1],foreAft:[23,8,-8,-23],span:45,upper:32,lower:35,bend:-1,stride:16,swing:.18,lift:9,turn:6.2,speed:1.18,cadence:1.9,burst:.80,pause:.42,weave:.34,antenna:[7,6,.70],plates:plates([[12,12],[19,20],[22,25]],'angular')},
+ beetle:{segments:3,gap:12,hipWidth:9.5,attachments:[0,1,2],foreAft:[13,0,-13],span:29,upper:20,lower:23,bend:-1,stride:11,swing:.23,lift:5,turn:3.5,speed:.77,cadence:1.5,burst:.32,pause:.21,weave:.14,antenna:[12,10,.54],plates:plates([[12,16],[22,28],[23,24]],'shell')},
+ mantis:{segments:4,gap:13,hipWidth:5,attachments:[1,2],foreAft:[22,-21],span:44,upper:32,lower:35,bend:-1,stride:19,swing:.31,lift:11,turn:4.1,speed:.84,cadence:1.15,burst:.92,pause:.62,weave:.23,antenna:[15,13,.22],plates:[{length:11,width:17,shape:'head'},{length:23,width:7,shape:'thorax'},{length:19,width:11,shape:'thorax'},{length:18,width:9,shape:'thorax'}],claw:{kind:'folded',upper:22,lower:24}},
+ scorpion:{segments:5,gap:10,hipWidth:8,attachments:[0,1,2,3],foreAft:[14,5,-5,-14],span:34,upper:24,lower:27,bend:1,stride:12,swing:.21,lift:4,turn:4.8,speed:.90,cadence:1.7,burst:.58,pause:.35,weave:.20,antenna:[5,4,.75],plates:plates([[15,18],[15,23],[14,21],[13,17],[11,12]],'angular'),claw:{kind:'pincer',upper:22,lower:24},tail:{links:7,length:8.5}}
+};
+for(const anatomy of Object.values(ANATOMY)){anatomy.display=anatomy.plates;Object.freeze(anatomy);}
+/** Physical dimensions and plate silhouettes share one unscaled source. */
+export const crawlAnatomy=kind=>ANATOMY[kind]||ANATOMY.spider;
+
 /** One responsive geometry source for drawing, feet, reach and control contact. */
 export function buildCrawlPanel(width,height){
  const w=Math.max(120,finite(width,1000)),h=Math.max(160,finite(height,620));
@@ -57,20 +70,20 @@ export function solveCrawlIK(hip,foot,upper,lower,bend=1){
 
 export class CrawlWorld{
  constructor(seed=417){
-  this.seed=(Number.isFinite(seed)?seed:417)>>>0;this._randomState=this.seed;this.time=0;this.mode='wander';this.creatures=[];this.guides=new Map();this.panel=buildCrawlPanel(1000,620);this.controls=this.panel.controls;this._population=3;this._settings={speed:.65,activity:.65,curiosity:.65,population:3,mode:'wander',reducedMotion:false};this._createPopulation(3);
+  this.seed=(Number.isFinite(seed)?seed:417)>>>0;this._randomState=this.seed;this.time=0;this.mode='wander';this.creatures=[];this.guides=new Map();this.panel=buildCrawlPanel(1000,620);this.controls=this.panel.controls;this._population=3;this._settings={speed:.65,activity:.65,curiosity:.65,motionEnergy:.65,population:3,mode:'wander',reducedMotion:false};this._createPopulation(3);
  }
  random(){this._randomState=(Math.imul(this._randomState,1664525)+1013904223)>>>0;return this._randomState/4294967296;}
  _createPopulation(count){
   while(this.creatures.length<count){
-   const index=this.creatures.length,positions=[[.62,.36],[.29,.68],[.79,.69],[.27,.30],[.50,.55]],p=positions[index],kind=index===0?'centipede':'spider';
-   const creature={id:'crawl-'+index,index,kind,colourIndex:index%4,x:this.panel.w*p[0],y:this.panel.h*p[1],angle:-1.6+index*1.8,scale:this.panel.unit,segments:[],legs:[],feelers:[],state:'wander',targetId:null,reach:null,pulse:0,phase:this.random()*TAU,timer:.15+index*.42,velocity:0,travel:0,lastAct:-Infinity,visited:[],destination:null,_swing:0};
+   const index=this.creatures.length,positions=[[.62,.36],[.29,.68],[.79,.69],[.27,.30],[.50,.55]],p=positions[index],kind=CRAWL_SPECIES[index];
+   const creature={id:'crawl-'+index,index,kind,colourIndex:index,x:this.panel.w*p[0],y:this.panel.h*p[1],angle:-1.6+index*1.8,scale:this.panel.unit,segments:[],legs:[],feelers:[],claws:[],tail:[],bodySway:0,breathe:0,state:'wander',targetId:null,reach:null,pulse:0,phase:this.random()*TAU,timer:.15+index*.42,velocity:0,travel:0,lastAct:-Infinity,visited:[],destination:null,_swing:0,gaitPhase:'travel',gaitTimer:.3+index*.13,pace:1};
    this.creatures.push(creature);this._resetSkeleton(creature);
   }
   if(this.creatures.length>count){const removed=new Set(this.creatures.splice(count).map(c=>c.id));for(const [key,g]of this.guides)if(removed.has(g.creatureId))this.guides.delete(key);for(const control of this.controls)if(removed.has(control.activeBy))control.activeBy=null;}
   this._population=count;
  }
  _resetSkeleton(c){
-  const u=creatureScale(this.panel),gap=(c.kind==='centipede'?12:14)*u,count=c.kind==='centipede'?13:3;c.scale=u;c.segments=[];c.legs=[];
+  const anatomy=crawlAnatomy(c.kind),u=creatureScale(this.panel),gap=anatomy.gap*u,count=anatomy.segments;c.scale=u;c.segments=[];c.legs=[];
   // Saved heads do not include their curved tails. Reconstruct inside the same
   // walking margin, bending the spine at an edge instead of projecting a long
   // straight tail outside the viewport. Every link retains its physical length.
@@ -86,15 +99,16 @@ export class CrawlWorld{
    }
    c.segments.push(best);
   }
-  const attachments=c.kind==='centipede'?Array.from({length:11},(_,i)=>i+1):[0,0,1,1];
+  const attachments=anatomy.attachments;
   for(let pair=0;pair<attachments.length;pair++)for(const side of[-1,1]){
-   const s=c.segments[attachments[pair]],length=c.kind==='centipede'?38:46,forward=c.kind==='centipede'?7:(1.5-pair)*16;
+   const s=c.segments[attachments[pair]],length=anatomy.span,forward=anatomy.foreAft[pair];
    const hip=this._hip(c,s,side),foot=this._limitFoot(point(hip.x+Math.cos(s.angle)*forward*u-Math.sin(s.angle)*side*length*u,hip.y+Math.sin(s.angle)*forward*u+Math.cos(s.angle)*side*length*u));
-   c.legs.push({index:pair,segment:attachments[pair],side,hip,knee:point(hip.x,hip.y),foot,planted:true,lift:0,phase:pair*.29+(side>0?.5:0),swing:0,from:{...foot},to:{...foot},lastStep:this.time+pair*.025,upper:(c.kind==='centipede'?26:32)*u,lower:(c.kind==='centipede'?29:35)*u});
+   const phase=c.kind==='centipede'?pair*.29:c.kind==='scorpion'?pair*.22:(pair%2)*.5;
+   c.legs.push({index:pair,segment:attachments[pair],side,hip,knee:point(hip.x,hip.y),foot,planted:true,lift:0,phase:phase+(side>0?.5:0),swing:0,from:{...foot},to:{...foot},lastStep:this.time+pair*.025,upper:anatomy.upper*u,lower:anatomy.lower*u});
   }
-  this._pose(c,0,false);
+  this._pose(c,0,Boolean(this._settings.reducedMotion));
  }
- _hip(c,s,side){const width=(c.kind==='centipede'?5.8:8)*c.scale;return{x:s.x-Math.sin(s.angle)*side*width,y:s.y+Math.cos(s.angle)*side*width};}
+ _hip(c,s,side){const width=crawlAnatomy(c.kind).hipWidth*c.scale;return{x:s.x-Math.sin(s.angle)*side*width,y:s.y+Math.cos(s.angle)*side*width};}
  _limitFoot(p){const a=this.panel.arena;return{x:clamp(p.x,a.x-5,a.x+a.w+5),y:clamp(p.y,a.y-8,a.y+a.h+5)};}
  resize(width,height){
   const w=Math.max(120,finite(width,1000)),h=Math.max(160,finite(height,620));if(this.panel.w===w&&this.panel.h===h)return;
@@ -128,9 +142,19 @@ export class CrawlWorld{
  }
  _beginApproach(c){const target=this._chooseTarget(c,this._guideFor(c));if(!target)return;c.targetId=target.id;c.state='approach';c.timer=0;c.destination=null;}
  _walk(c,target,dt,settings){
-  const u=c.scale,dx=target.x-c.x,dy=target.y-c.y,dist=Math.hypot(dx,dy),speed=clamp(settings.speed??.65),desired=Math.atan2(dy,dx),diff=angleDiff(desired,c.angle),turn=(c.kind==='centipede'?2.8:5.6)*(0.45+speed);
+  const anatomy=crawlAnatomy(c.kind),u=c.scale,dx=target.x-c.x,dy=target.y-c.y,dist=Math.hypot(dx,dy),speed=clamp(settings.speed??.65),energy=clamp(settings.motionEnergy??.65);
+  // Each animal alternates irregular advances and short investigative pauses.
+  // Pausing freezes its body while the feet remain planted; no screen sliding.
+  c.gaitTimer-=dt;
+  if(c.gaitTimer<=0){
+   if(c.gaitPhase==='travel'&&energy>0&&this.random()<anatomy.pause*energy){c.gaitPhase='pause';c.gaitTimer=(.10+this.random()*.30)*energy;c.pace=1;}
+   else{c.gaitPhase='travel';c.gaitTimer=.35+this.random()*(1.3-anatomy.pause);c.pace=1+this.random()*anatomy.burst*energy;}
+  }
+  if(c.gaitPhase==='pause'){c.velocity=0;return dist;}
+  const weave=Math.sin(c.travel/(42*u)+c.phase)*Math.sin(this.time*.73+c.phase)*anatomy.weave*energy*clamp(dist/(65*u));
+  const desired=Math.atan2(dy,dx)+weave,diff=angleDiff(desired,c.angle),turn=anatomy.turn*(0.45+speed);
   c.angle+=clamp(diff,-turn*dt,turn*dt);
-  const gait=c.kind==='spider'?.56+.44*smooth(Math.sin(this.time*(3.6+speed*2.7)+c.phase)*.5+.5):.84+.16*Math.sin(this.time*2.2+c.phase),rate=(18+speed*72)*u*gait,advance=Math.min(dist,rate*dt)*Math.max(.1,Math.cos(Math.min(Math.abs(diff),Math.PI/2)));
+  const gait=1+Math.sin(this.time*(anatomy.cadence*2+speed*2.2)+c.phase)*anatomy.burst*energy*.27,rate=(18+speed*72)*u*anatomy.speed*c.pace*gait,advance=Math.min(dist,rate*dt)*Math.max(.1,Math.cos(Math.min(Math.abs(diff),Math.PI/2)));
   const previous=point(c.x,c.y);c.x+=Math.cos(c.angle)*advance;c.y+=Math.sin(c.angle)*advance;
   const a=this.panel.arena,margin=36*u;c.x=clamp(c.x,a.x+margin,a.x+a.w-margin);c.y=clamp(c.y,a.y+margin,a.y+a.h-margin);c.velocity=distance(c,previous)/Math.max(.001,dt);c.travel+=distance(c,previous);
   return dist;
@@ -153,18 +177,18 @@ export class CrawlWorld{
   return{creatureId:c.id,controlId:target.id,key:target.key,lane:target.lane,oldValue,value,time:this.time};
  }
  _pose(c,dt,reduced){
-  const u=c.scale,head=c.segments[0];head.x=c.x;head.y=c.y;head.angle=c.angle;
-  const gap=(c.kind==='centipede'?12:14)*u;
+  const anatomy=crawlAnatomy(c.kind),u=c.scale,head=c.segments[0],energy=clamp(this._settings.motionEnergy??.65);head.x=c.x;head.y=c.y;head.angle=c.angle;
+  const gap=anatomy.gap*u;
   for(let i=1;i<c.segments.length;i++){const p=c.segments[i-1],s=c.segments[i],dx=p.x-s.x,dy=p.y-s.y,d=Math.hypot(dx,dy)||1,angle=Math.atan2(dy,dx);s.x=p.x-dx/d*gap;s.y=p.y-dy/d*gap;s.angle=angle;}
-  const moving=c.velocity>u*2,gaitRate=1.4+(this._settings.speed??.65)*1.8;
+  const moving=c.velocity>u*2,gaitRate=anatomy.cadence+(this._settings.speed??.65)*1.8;
   for(const leg of c.legs){
    const segment=c.segments[leg.segment];leg.hip=this._hip(c,segment,leg.side);
-   const forward=c.kind==='centipede'?11:(1.5-leg.index)*14,span=c.kind==='centipede'?38:45;
+   const forward=anatomy.foreAft[leg.index],span=anatomy.span;
    const goal=this._limitFoot(point(leg.hip.x+Math.cos(segment.angle)*forward*u-Math.sin(segment.angle)*leg.side*span*u,leg.hip.y+Math.sin(segment.angle)*forward*u+Math.cos(segment.angle)*leg.side*span*u)),separation=distance(leg.foot,goal),extension=distance(leg.hip,leg.foot),phase=(this.time*gaitRate+leg.phase)%1;
-   if(leg.planted&&((moving&&separation>14*u&&phase<.22)||extension>(leg.upper+leg.lower)*.91)){
+   if(leg.planted&&((moving&&separation>anatomy.stride*u&&phase<.22)||extension>(leg.upper+leg.lower)*.91)){
     leg.planted=false;leg.swing=0;leg.from={...leg.foot};leg.to=goal;
    }
-   if(!leg.planted){leg.swing=Math.min(1,leg.swing+dt/(.16+.11/(.5+(this._settings.speed??.65))));const t=smooth(leg.swing);leg.foot.x=lerp(leg.from.x,leg.to.x,t);leg.foot.y=lerp(leg.from.y,leg.to.y,t);leg.lift=reduced?0:Math.sin(leg.swing*Math.PI)*7*u;if(leg.swing>=1){leg.planted=true;leg.lift=0;leg.lastStep=this.time;}}
+   if(!leg.planted){leg.swing=Math.min(1,leg.swing+dt/(anatomy.swing/(.65+(this._settings.speed??.65)*.55)));const t=smooth(leg.swing);leg.foot.x=lerp(leg.from.x,leg.to.x,t);leg.foot.y=lerp(leg.from.y,leg.to.y,t);leg.lift=reduced?0:Math.sin(leg.swing*Math.PI)*anatomy.lift*u*(.55+energy*.70);if(leg.swing>=1){leg.planted=true;leg.lift=0;leg.lastStep=this.time;}}
    else leg.lift=0;
    // A fast turn can carry a hip beyond a foot that is already in flight.
    // Fold that lifted foot back within the two real bone lengths; never stretch
@@ -172,9 +196,24 @@ export class CrawlWorld{
    const dx=leg.foot.x-leg.hip.x,dy=leg.foot.y-leg.hip.y,d=Math.hypot(dx,dy),near=Math.abs(leg.upper-leg.lower)+.001,far=leg.upper+leg.lower-.001;
    if(d>far||d<near){const reach=clamp(d,near,far),a=d>.0001?Math.atan2(dy,dx):segment.angle+leg.side*Math.PI/2;leg.foot.x=leg.hip.x+Math.cos(a)*reach;leg.foot.y=leg.hip.y+Math.sin(a)*reach;if(leg.planted){leg.planted=false;leg.swing=.98;leg.to=goal;}leg.lift=reduced?0:Math.max(leg.lift,2*u);}
    // Feet remain fixed during stance; only the knee changes as the body passes.
-   leg.knee=solveCrawlIK(leg.hip,leg.foot,leg.upper,leg.lower,leg.side*(c.kind==='centipede'?1:-1));
+   leg.knee=solveCrawlIK(leg.hip,leg.foot,leg.upper,leg.lower,leg.side*anatomy.bend);
   }
-  c.feelers=[-1,1].map(side=>{const a=c.angle+side*(.30+(reduced?0:Math.sin(this.time*2.7+c.phase+side)*.10)),base=point(c.x+Math.cos(c.angle)*7*u,c.y+Math.sin(c.angle)*7*u),knee=point(base.x+Math.cos(a)*16*u,base.y+Math.sin(a)*16*u),tip=point(knee.x+Math.cos(a+side*.21)*12*u,knee.y+Math.sin(a+side*.21)*12*u);return{base,knee,tip};});
+  c.bodySway=reduced?0:Math.sin(this.time*1.7+c.phase)*.05*energy;
+  c.breathe=reduced?0:Math.sin(this.time*2.1+c.phase)*.025*energy;
+  c.feelers=[-1,1].map(side=>{const a=c.angle+side*(anatomy.antenna[2]+(reduced?0:Math.sin(this.time*2.7+c.phase+side)*.16*energy)),base=point(c.x+Math.cos(c.angle)*7*u,c.y+Math.sin(c.angle)*7*u),knee=point(base.x+Math.cos(a)*anatomy.antenna[0]*u,base.y+Math.sin(a)*anatomy.antenna[0]*u),tip=point(knee.x+Math.cos(a+side*.21)*anatomy.antenna[1]*u,knee.y+Math.sin(a+side*.21)*anatomy.antenna[1]*u);return{base,knee,tip};});
+  c.claws=[];
+  if(anatomy.claw)for(const side of[-1,1]){
+   const folded=anatomy.claw.kind==='folded',probe=reduced?0:Math.sin(this.time*(folded?1.6:2.1)+c.phase+side)*energy,forward=(folded?20:23)+probe*(folded?3:2),span=(folded?17:21)+probe*(folded?2:1.5);
+   const base=point(c.x+Math.cos(c.angle)*3*u-Math.sin(c.angle)*side*7*u,c.y+Math.sin(c.angle)*3*u+Math.cos(c.angle)*side*7*u),tip=point(c.x+Math.cos(c.angle)*forward*u-Math.sin(c.angle)*side*span*u,c.y+Math.sin(c.angle)*forward*u+Math.cos(c.angle)*side*span*u),upper=anatomy.claw.upper*u,lower=anatomy.claw.lower*u,knee=solveCrawlIK(base,tip,upper,lower,-side);
+   const open=(folded?.60:.36)+(reduced?0:(Math.sin(this.time*2.6+c.phase+side)*.5+.5)*.22*energy),jaw=folded?8:7;
+   const innerTip=point(tip.x+Math.cos(c.angle-side*open)*jaw*u,tip.y+Math.sin(c.angle-side*open)*jaw*u),outerTip=point(tip.x+Math.cos(c.angle+side*open)*jaw*u,tip.y+Math.sin(c.angle+side*open)*jaw*u);
+   c.claws.push({base,knee,tip,innerTip,outerTip,upper,lower,side,kind:anatomy.claw.kind});
+  }
+  c.tail=[];
+  if(anatomy.tail){
+   const end=c.segments[c.segments.length-1],curl=.58+(reduced?0:Math.sin(this.time*1.5+c.phase)*.045*energy);c.tail.push({x:end.x,y:end.y,angle:end.angle+Math.PI});
+   for(let index=1;index<=anatomy.tail.links;index++){const previous=c.tail[index-1],angle=end.angle+Math.PI+(index-1)*curl,length=anatomy.tail.length*u;c.tail.push({x:previous.x+Math.cos(angle)*length,y:previous.y+Math.sin(angle)*length,angle});}
+  }
  }
  update(dt,settings={}){
   dt=clamp(finite(dt,0),0,.05);this._settings={...this._settings,...settings};settings=this._settings;this.mode=settings.mode==='guide'?'guide':settings.mode==='wander'?'wander':this.mode;
