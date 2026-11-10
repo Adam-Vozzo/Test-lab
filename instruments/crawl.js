@@ -2,13 +2,14 @@ import {clamp,createSurface,bindPointers} from './kit.js';
 import {signalRenderProfile,renderPixelRatio,createFrameGate} from '../render-performance.js';
 import {CrawlWorld} from './crawl-world.js';
 import {CrawlRenderer} from './crawl-renderer.js';
+import {CrawlAudioResponse} from './crawl-audio.js';
 
 const range=(key,label,min,max,step,section,description,unit='')=>({key,label,min,max,step,section,description,unit});
 export const definition={
  id:'crawl',name:'Crawl',layoutMode:'single',commonSoundControls:false,keyboardNotes:false,performance:{arp:false,hold:false},
  theme:{bg:'#080b0c',fg:'#b4b8af',accent:'#d6ef62',muted:'#727c80'},
  defaultSound:{waveform:'triangle',attack:.014,decay:.3,sustain:.5,release:.7,cutoff:8500,resonance:.8,gain:.68,pan:0,ratio:1,index:0,detune:0,glide:.05,echo:.18,delayTime:.27,feedback:.22,speed:.65,activity:.6,curiosity:.65,population:5,motionEnergy:.65},
- defaultAppearance:{panelColour:'#080b0c',traceColour:'#56626b',legendColour:'#bfc7bf',creatureLime:'#d6ef62',creatureViolet:'#7273c8',creatureCoral:'#ef8466',creatureTeal:'#6dd7b4',circuitContrast:.5,panelContrast:.65,controlContrast:.95,legendContrast:.9,legWeight:1,jointSize:1,creatureGlow:.3,limbEnvelope:.2,chroma:.7,colourFlow:.35,anatomyDetail:.75,scopeGain:.8,sceneGrain:.025,sceneGrainSize:1},
+ defaultAppearance:{panelColour:'#080b0c',traceColour:'#56626b',legendColour:'#bfc7bf',creatureLime:'#d6ef62',creatureViolet:'#7273c8',creatureCoral:'#ef8466',creatureTeal:'#6dd7b4',circuitContrast:.5,panelContrast:.65,controlContrast:.95,legendContrast:.9,legWeight:1,jointSize:1,creatureGlow:.3,limbEnvelope:.2,chroma:.7,colourFlow:.35,anatomyDetail:.75,audioMotion:.65,audioColour:.8,audioGlow:.45,audioSensitivity:1.2,scopeGain:.8,sceneGrain:.025,sceneGrainSize:1},
  soundControls:[
   range('population','Creature count',1,5,1,'Behaviour','Adds a centipede, spider, beetle, mantis and scorpion, in that order. Every creature can operate all four sound circuits.'),
   range('speed','Walking speed',.15,1,.05,'Behaviour','Speed of travel between controls. Limbs still plant and lift independently.'),
@@ -31,13 +32,17 @@ export const definition={
   {key:'creatureViolet',label:'Violet accent',kind:'color',section:'Creatures',description:'Base violet colour in the creatures’ palette and second sound circuit.'},
   {key:'creatureCoral',label:'Coral accent',kind:'color',section:'Creatures',description:'Base coral colour in the creatures’ palette, third sound circuit and upper output-meter segments.'},
   {key:'creatureTeal',label:'Teal accent',kind:'color',section:'Creatures',description:'Base teal colour in the creatures’ palette and fourth sound circuit.'},
-  range('chroma','Colour variation',0,1,.05,'Creatures','Amount of spectral colour variation along shells, body segments and legs. Zero retains each creature’s base colours.'),
-  range('colourFlow','Colour motion',0,1,.05,'Creatures','Speed of slow colour movement across the creatures. Zero holds the colour pattern still.'),
+  range('chroma','Colour variation',0,1,.05,'Creatures','Amount of spectral colour variation along shells, body segments and legs. Zero uses each creature’s base palette before sound-driven colour is applied.'),
+  range('colourFlow','Colour motion',0,1,.05,'Creatures','Speed of slow colour movement across the creatures. Zero stops ambient colour movement; sound-driven colour remains independent.'),
   range('anatomyDetail','Anatomy detail',0,1,.05,'Creatures','Visibility of shell facets, wing veins and fine body construction lines. Main silhouettes and legs remain visible.'),
   range('legWeight','Leg stroke weight',.5,1.8,.05,'Creatures','Width of the articulated leg strokes. Does not change reach or walking geometry.','×'),
   range('jointSize','Joint marker size',.5,1.8,.05,'Creatures','Size of the small markers at knees, feet and body joints.','×'),
   range('limbEnvelope','Limb construction lines',0,1,.05,'Creatures','Opacity of the faint outer wire cages around articulated legs.'),
   range('creatureGlow','Creature light spill',0,1,.05,'Creatures','Soft light around the creature wires, leaving their centre strokes sharp.'),
+  range('audioMotion','Sound-driven movement',0,1,.05,'Audio response','Amount that measured audio flexes shell plates, antennae, claws and tails. Feet and operating hands stay anchored.'),
+  range('audioColour','Sound-driven colour',0,1,.05,'Audio response','Strength of colour shifts from bass, midrange and high-frequency energy. Independent of ambient colour motion.'),
+  range('audioGlow','Sound-driven light',0,1,.05,'Audio response','Extra wire and joint brightness on sounding notes. Does not brighten the panel or alter audio volume.'),
+  range('audioSensitivity','Response sensitivity',.25,3,.05,'Audio response','Visual sensitivity to the measured output level. Higher values make quieter notes more visible.','×'),
   range('scopeGain','Scope amplitude',.3,2,.05,'Meter','Vertical scale of the measured output waveform in the central strip. Does not alter audio gain.','×')
  ]
 };
@@ -74,7 +79,7 @@ export function mount(host,api){
  const toolbar=document.createElement('div');toolbar.className='crawl-mode';toolbar.setAttribute('role','group');toolbar.setAttribute('aria-label','Creature guidance');
  for(const [mode,label,description]of [['wander','Wander','Creatures wander freely after you release them.'],['guide','Guide','Leave a destination for a creature after you release it.']]){const button=document.createElement('button');button.type='button';button.dataset.mode=mode;button.textContent=label;button.title=description;button.setAttribute('aria-pressed',String(mode==='wander'));toolbar.append(button);}shell.append(toolbar);
  const contacts=new Map(),keyboard=new Set();let mode='wander',selected=null,lastTime=0,destroyed=false,playing=false,sequenceTick=0,lastArrival=-1,lastStatus='',keyboardPoint={x:.5,y:.5};
- const appearance=()=>({...definition.defaultAppearance,...api.state.appearance});
+ const appearance=()=>({...definition.defaultAppearance,...api.state.appearance}),audioResponse=new CrawlAudioResponse();
  const patch=lane=>crawlVoice(lane,world.panel.controls,api.state.sound,api.quantize);
  const sourceId=pointer=>'crawl-touch-'+pointer;
  const creatureLane=id=>Math.abs(Number(String(id).match(/\d+$/)?.[0])||0)%4;
@@ -114,11 +119,12 @@ export function mount(host,api){
  }
  return{
   frame(t,dt){if(destroyed||!gate.due(t*1000))return;dt=Math.min(.05,lastTime?t-lastTime:dt);lastTime=t;surface.resize();const sound=api.state.sound;
-   const actions=world.update(dt,{speed:sound.speed,activity:sound.activity,curiosity:sound.curiosity,population:sound.population,motionEnergy:sound.motionEnergy,mode,reducedMotion:api.reducedMotion});applyActions(actions);
+   const look=appearance(),snapshot=api.audio.snapshot();audioResponse.update(snapshot,dt,{sampleRate:api.audio.context?.sampleRate||48000,sensitivity:look.audioSensitivity});audioResponse.assign(world.creatures);
+   const actions=world.update(dt,{speed:sound.speed,activity:sound.activity,curiosity:sound.curiosity,population:sound.population,motionEnergy:sound.motionEnergy,audioMotion:look.audioMotion,mode,reducedMotion:api.reducedMotion});applyActions(actions);
    // Population edits may remove a guided creature; its owned source must not
    // outlive the visible body, even while a finger remains on the canvas.
    const living=new Set(world.creatures.map(creature=>creature.id));for(const q of [...contacts.values()])if(!living.has(q.creatureId))end(q.pointer,true);
-   const snapshot=api.audio.snapshot(),patches=[0,1,2,3].map(patch),notes=patches.map(voice=>api.noteName(voice.midi));c.clearRect(0,0,surface.width,surface.height);renderer.draw(c,world,appearance(),snapshot,{time:world.time,mode,selected,playing,step:snapshot.step,notes,patches,reducedMotion:api.reducedMotion});
+   const patches=[0,1,2,3].map(patch),notes=patches.map(voice=>api.noteName(voice.midi));c.clearRect(0,0,surface.width,surface.height);renderer.draw(c,world,look,snapshot,{time:world.time,mode,selected,playing,step:snapshot.step,notes,patches,reducedMotion:api.reducedMotion});
    const status=`${world.creatures.length} AGENTS · ${mode==='guide'?'GUIDE':'WANDER'}`;if(status!==lastStatus){api.setStatus(status);lastStatus=status;}
   },
   onStep(step,when){if(!playing)return;const tick=sequenceTick++,controls=world.panel.controls,contact=controls.find(control=>control.key==='step'&&control.index===step%16);if(contact&&contact.value<.5)return;const cycle=Math.floor(tick/16),arrival=lastArrival!==cycle;lastArrival=cycle;
@@ -126,9 +132,9 @@ export function mount(host,api){
   },
   setPlaying(value){value=Boolean(value);if(value&&!playing){sequenceTick=0;lastArrival=-1;}if(!value&&playing)releaseAll();playing=value;},
   update(key,kind){if(kind==='performance')for(const q of contacts.values())audition(q);},
-  cancel(){releaseAll();},
+  cancel(){releaseAll();audioResponse.reset();audioResponse.assign(world.creatures);},
   getData(){return{...world.getData(),mode};},
-  setData(data){releaseAll();world.setData(data);if(data?.mode==='wander'||data?.mode==='guide')mode=data.mode;syncMode();},
+  setData(data){releaseAll();audioResponse.reset();world.setData(data);audioResponse.assign(world.creatures);if(data?.mode==='wander'||data?.mode==='guide')mode=data.mode;syncMode();},
   destroy(){if(destroyed)return;destroyed=true;unbind();releaseAll();toolbar.removeEventListener('click',onMode);surface.canvas.removeEventListener('keydown',onKeyDown);surface.canvas.removeEventListener('keyup',onKeyUp);surface.canvas.removeEventListener('blur',onBlur);renderer.dispose();surface.destroy();shell.remove();}
  };
 }

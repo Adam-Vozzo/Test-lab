@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {CrawlWorld,buildCrawlPanel,crawlActuatorPoint,crawlControlValue,crawlAnatomy,CRAWL_SPECIES} from '../instruments/crawl-world.js';
 const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
 const close=(a,b,tolerance=1e-7)=>assert.ok(Math.abs(a-b)<tolerance,`${a} differs from ${b}`);
+const fullAudio=()=>({level:1,bass:1,mid:1,treble:1,attack:1,segments:Array(13).fill(1)});
 const checkAppendages=(c,w,h)=>{
  const inside=p=>assert.ok(Number.isFinite(p.x+p.y)&&p.x>=0&&p.x<=w&&p.y>=0&&p.y<=h,`${c.kind} appendage ${p.x},${p.y} escaped ${w}×${h}`);
  for(const feeler of c.feelers)for(const p of[feeler.base,feeler.knee,feeler.tip])inside(p);
@@ -98,16 +99,43 @@ test('all five species operate controls, with distinct gaits and optional bursts
 
 test('all species retain bounded limbs at low frame rates and maximum movement energy',()=>{
  for(const [w,h]of [[844,327],[390,740],[1280,820],[240,180]]){
-  const world=new CrawlWorld(999);world.resize(w,h);
+  const world=new CrawlWorld(999);world.resize(w,h);world.update(0,{population:5});
   for(let frame=0;frame<1200;frame++){
    if(frame%300===0)world.setGuide(1,frame%600?20:w-20,frame%900?60:h-20);
-   world.update(.05,{population:5,speed:1,motionEnergy:1,activity:1});
+   for(const c of world.creatures)c.audio=fullAudio();
+   world.update(.05,{population:5,speed:1,motionEnergy:1,audioMotion:1,activity:1});
    for(const c of world.creatures){
     checkAppendages(c,w,h);
     for(const leg of c.legs){close(dist(leg.hip,leg.knee),leg.upper);close(dist(leg.knee,leg.foot),leg.lower);for(const p of[leg.hip,leg.knee,leg.foot])assert.ok(p.x>=0&&p.x<=w&&p.y>=0&&p.y<=h);}
    }
   }
  }
+});
+
+test('measured audio articulates appendages without changing stance, contact, or musical choices',()=>{
+ const worlds=Array.from({length:5},()=>{const w=new CrawlWorld(417);w.resize(844,327);w.update(0,{population:5});return w;});
+ const [silent,reactive,disabled,silentReduced,reactiveReduced]=worlds,peakResponse=new Map(CRAWL_SPECIES.map(kind=>[kind,0]));let contacts=0;
+ const pose=c=>({feelers:c.feelers,claws:c.claws,tail:c.tail,bodySway:c.bodySway,breathe:c.breathe});
+ for(let frame=0;frame<1200;frame++){
+  for(const world of[reactive,disabled,reactiveReduced])for(const c of world.creatures)c.audio={level:.8,bass:(Math.sin(frame*.12)+1)/2,mid:.7,treble:(Math.cos(frame*.16)+1)/2,attack:frame%24<6?1:0,segments:Array(13).fill(.9)};
+  const results=worlds.map((world,index)=>world.update(1/60,{population:5,speed:1,motionEnergy:1,audioMotion:index===2?0:1,reducedMotion:index>=3}));
+  for(const events of results)assert.deepEqual(events,results[0]);contacts+=results[0].length;
+  for(const world of worlds)assert.deepEqual(world.getData(),silent.getData());
+  for(let index=0;index<5;index++){
+   const base=silent.creatures[index],active=reactive.creatures[index];
+   assert.deepEqual(active.segments,base.segments);assert.deepEqual(active.legs,base.legs);assert.deepEqual(active.reach,base.reach);
+   assert.deepEqual(pose(disabled.creatures[index]),pose(base));assert.deepEqual(pose(reactiveReduced.creatures[index]),pose(silentReduced.creatures[index]));
+   checkAppendages(active,844,327);
+   const difference=Math.max(...active.feelers.map((feeler,i)=>dist(feeler.tip,base.feelers[i].tip)),...active.claws.map((claw,i)=>dist(claw.tip,base.claws[i].tip)),...active.tail.map((p,i)=>dist(p,base.tail[i])))/active.scale;
+   peakResponse.set(active.kind,Math.max(peakResponse.get(active.kind),difference));
+  }
+ }
+ assert.ok(contacts>20);
+ for(const [kind,difference]of peakResponse)assert.ok(difference>3,kind+' should visibly articulate from measured audio');
+ assert.ok(reactive.getData().creatures.every(c=>!('audio'in c)),'audio envelopes must not enter exported presets');
+ // Muting actual output returns the same appendage pose as the silent world.
+ for(const c of reactive.creatures)c.audio={level:0,bass:0,mid:0,treble:0,attack:0,segments:[]};
+ reactive.update(0);silent.update(0);for(let index=0;index<5;index++)assert.deepEqual(pose(reactive.creatures[index]),pose(silent.creatures[index]));
 });
 
 test('resize, restore, and population changes preserve values without orphaning guidance or contact',()=>{
@@ -137,7 +165,7 @@ test('edge saves and responsive resets reconstruct bounded bodies before their f
   }
  };
  for(let heading=0;heading<10;heading++)for(const [w,h]of viewports){
-  const world=new CrawlWorld(417);world.resize(w,h);
+  const world=new CrawlWorld(417);world.resize(w,h);world.update(0,{population:5,audioMotion:1});for(const c of world.creatures)c.audio=fullAudio();
   const data={randomState:892317,controls:{'v0-tone':.73,'step-02':0},creatures:positions.map(([x,y],index)=>({id:'crawl-'+index,x,y,angle:heading*Math.PI/4}))};
   if(heading>=8)Object.assign(data.creatures[0],repros[heading-8]);
   world.setData(data);const values=world.getData().controls;assertReset(world);assert.equal(world.getData().randomState,data.randomState);

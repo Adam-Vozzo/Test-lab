@@ -70,13 +70,13 @@ export function solveCrawlIK(hip,foot,upper,lower,bend=1){
 
 export class CrawlWorld{
  constructor(seed=417){
-  this.seed=(Number.isFinite(seed)?seed:417)>>>0;this._randomState=this.seed;this.time=0;this.mode='wander';this.creatures=[];this.guides=new Map();this.panel=buildCrawlPanel(1000,620);this.controls=this.panel.controls;this._population=3;this._settings={speed:.65,activity:.65,curiosity:.65,motionEnergy:.65,population:3,mode:'wander',reducedMotion:false};this._createPopulation(3);
+  this.seed=(Number.isFinite(seed)?seed:417)>>>0;this._randomState=this.seed;this.time=0;this.mode='wander';this.creatures=[];this.guides=new Map();this.panel=buildCrawlPanel(1000,620);this.controls=this.panel.controls;this._population=3;this._settings={speed:.65,activity:.65,curiosity:.65,motionEnergy:.65,audioMotion:.65,population:3,mode:'wander',reducedMotion:false};this._createPopulation(3);
  }
  random(){this._randomState=(Math.imul(this._randomState,1664525)+1013904223)>>>0;return this._randomState/4294967296;}
  _createPopulation(count){
   while(this.creatures.length<count){
    const index=this.creatures.length,positions=[[.62,.36],[.29,.68],[.79,.69],[.27,.30],[.50,.55]],p=positions[index],kind=CRAWL_SPECIES[index];
-   const creature={id:'crawl-'+index,index,kind,colourIndex:index,x:this.panel.w*p[0],y:this.panel.h*p[1],angle:-1.6+index*1.8,scale:this.panel.unit,segments:[],legs:[],feelers:[],claws:[],tail:[],bodySway:0,breathe:0,state:'wander',targetId:null,reach:null,pulse:0,phase:this.random()*TAU,timer:.15+index*.42,velocity:0,travel:0,lastAct:-Infinity,visited:[],destination:null,_swing:0,gaitPhase:'travel',gaitTimer:.3+index*.13,pace:1};
+   const creature={id:'crawl-'+index,index,kind,colourIndex:index,x:this.panel.w*p[0],y:this.panel.h*p[1],angle:-1.6+index*1.8,scale:this.panel.unit,segments:[],legs:[],feelers:[],claws:[],tail:[],bodySway:0,breathe:0,audio:{level:0,bass:0,mid:0,treble:0,attack:0,segments:[]},state:'wander',targetId:null,reach:null,pulse:0,phase:this.random()*TAU,timer:.15+index*.42,velocity:0,travel:0,lastAct:-Infinity,visited:[],destination:null,_swing:0,gaitPhase:'travel',gaitTimer:.3+index*.13,pace:1};
    this.creatures.push(creature);this._resetSkeleton(creature);
   }
   if(this.creatures.length>count){const removed=new Set(this.creatures.splice(count).map(c=>c.id));for(const [key,g]of this.guides)if(removed.has(g.creatureId))this.guides.delete(key);for(const control of this.controls)if(removed.has(control.activeBy))control.activeBy=null;}
@@ -178,6 +178,9 @@ export class CrawlWorld{
  }
  _pose(c,dt,reduced){
   const anatomy=crawlAnatomy(c.kind),u=c.scale,head=c.segments[0],energy=clamp(this._settings.motionEnergy??.65);head.x=c.x;head.y=c.y;head.angle=c.angle;
+  // Only freely articulated appendages listen to measured audio. Stance,
+  // traversal, the operating hand and control choices remain authoritative.
+  const audio=c.audio||{},audioMotion=reduced?0:clamp(finite(this._settings.audioMotion,.65)),band=key=>clamp(finite(audio[key],0))*audioMotion,bass=band('bass'),mid=band('mid'),treble=band('treble'),attack=band('attack');
   const gap=anatomy.gap*u;
   for(let i=1;i<c.segments.length;i++){const p=c.segments[i-1],s=c.segments[i],dx=p.x-s.x,dy=p.y-s.y,d=Math.hypot(dx,dy)||1,angle=Math.atan2(dy,dx);s.x=p.x-dx/d*gap;s.y=p.y-dy/d*gap;s.angle=angle;}
   const moving=c.velocity>u*2,gaitRate=anatomy.cadence+(this._settings.speed??.65)*1.8;
@@ -200,18 +203,19 @@ export class CrawlWorld{
   }
   c.bodySway=reduced?0:Math.sin(this.time*1.7+c.phase)*.05*energy;
   c.breathe=reduced?0:Math.sin(this.time*2.1+c.phase)*.025*energy;
-  c.feelers=[-1,1].map(side=>{const a=c.angle+side*(anatomy.antenna[2]+(reduced?0:Math.sin(this.time*2.7+c.phase+side)*.16*energy)),base=point(c.x+Math.cos(c.angle)*7*u,c.y+Math.sin(c.angle)*7*u),knee=point(base.x+Math.cos(a)*anatomy.antenna[0]*u,base.y+Math.sin(a)*anatomy.antenna[0]*u),tip=point(knee.x+Math.cos(a+side*.21)*anatomy.antenna[1]*u,knee.y+Math.sin(a+side*.21)*anatomy.antenna[1]*u);return{base,knee,tip};});
+  const probe=c.kind==='centipede'?treble*.34+attack*.12:c.kind==='spider'?attack*.62+treble*.20:c.kind==='beetle'?mid*.24+bass*.20:c.kind==='mantis'?treble*.24+mid*.15:bass*.20;
+  c.feelers=[-1,1].map(side=>{const a=c.angle+side*(anatomy.antenna[2]+(reduced?0:Math.sin(this.time*2.7+c.phase+side)*.16*energy)+probe),base=point(c.x+Math.cos(c.angle)*7*u,c.y+Math.sin(c.angle)*7*u),knee=point(base.x+Math.cos(a)*anatomy.antenna[0]*u,base.y+Math.sin(a)*anatomy.antenna[0]*u),tip=point(knee.x+Math.cos(a+side*(.21+mid*.14))*anatomy.antenna[1]*u,knee.y+Math.sin(a+side*(.21+mid*.14))*anatomy.antenna[1]*u);return{base,knee,tip};});
   c.claws=[];
   if(anatomy.claw)for(const side of[-1,1]){
-   const folded=anatomy.claw.kind==='folded',probe=reduced?0:Math.sin(this.time*(folded?1.6:2.1)+c.phase+side)*energy,forward=(folded?20:23)+probe*(folded?3:2),span=(folded?17:21)+probe*(folded?2:1.5);
+   const folded=anatomy.claw.kind==='folded',probe=reduced?0:Math.sin(this.time*(folded?1.6:2.1)+c.phase+side)*energy,reaction=folded?mid*.6+attack*.4:bass*.7+attack*.3,forward=(folded?20:23)+probe*(folded?3:2)-reaction*6,span=(folded?17:21)+probe*(folded?2:1.5)+reaction*(folded?3:-3);
    const base=point(c.x+Math.cos(c.angle)*3*u-Math.sin(c.angle)*side*7*u,c.y+Math.sin(c.angle)*3*u+Math.cos(c.angle)*side*7*u),tip=point(c.x+Math.cos(c.angle)*forward*u-Math.sin(c.angle)*side*span*u,c.y+Math.sin(c.angle)*forward*u+Math.cos(c.angle)*side*span*u),upper=anatomy.claw.upper*u,lower=anatomy.claw.lower*u,knee=solveCrawlIK(base,tip,upper,lower,-side);
-   const open=(folded?.60:.36)+(reduced?0:(Math.sin(this.time*2.6+c.phase+side)*.5+.5)*.22*energy),jaw=folded?8:7;
+   const open=(folded?.60:.36)+(reduced?0:(Math.sin(this.time*2.6+c.phase+side)*.5+.5)*.22*energy)+(folded?-attack*.25:treble*.38+bass*.12),jaw=folded?8:7;
    const innerTip=point(tip.x+Math.cos(c.angle-side*open)*jaw*u,tip.y+Math.sin(c.angle-side*open)*jaw*u),outerTip=point(tip.x+Math.cos(c.angle+side*open)*jaw*u,tip.y+Math.sin(c.angle+side*open)*jaw*u);
    c.claws.push({base,knee,tip,innerTip,outerTip,upper,lower,side,kind:anatomy.claw.kind});
   }
   c.tail=[];
   if(anatomy.tail){
-   const end=c.segments[c.segments.length-1],curl=.58+(reduced?0:Math.sin(this.time*1.5+c.phase)*.045*energy);c.tail.push({x:end.x,y:end.y,angle:end.angle+Math.PI});
+   const delayed=Array.isArray(audio.segments)?clamp(finite(audio.segments[audio.segments.length-1],0))*audioMotion:0,end=c.segments[c.segments.length-1],curl=.58+(reduced?0:Math.sin(this.time*1.5+c.phase)*.045*energy)+bass*.12+attack*.06+delayed*.06;c.tail.push({x:end.x,y:end.y,angle:end.angle+Math.PI});
    for(let index=1;index<=anatomy.tail.links;index++){const previous=c.tail[index-1],angle=end.angle+Math.PI+(index-1)*curl,length=anatomy.tail.length*u;c.tail.push({x:previous.x+Math.cos(angle)*length,y:previous.y+Math.sin(angle)*length,angle});}
   }
  }
