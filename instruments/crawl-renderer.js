@@ -1,7 +1,7 @@
 import {TAU,clamp,lerp,rgba} from './kit.js';
 import {crawlControlRadius,crawlControlValue,crawlAnatomy} from './crawl-world.js';
 
-const DEFAULTS={panelColour:'#080b0c',traceColour:'#56626b',legendColour:'#bfc7bf',creatureLime:'#d6ef62',creatureViolet:'#7273c8',creatureCoral:'#ef8466',creatureTeal:'#6dd7b4',circuitContrast:.5,panelContrast:.65,controlContrast:.95,legendContrast:.9,legWeight:1,jointSize:1,creatureGlow:.3,limbEnvelope:.2,scopeGain:.8,chroma:.7,colourFlow:.35,anatomyDetail:.75};
+const DEFAULTS={panelColour:'#080b0c',traceColour:'#56626b',legendColour:'#bfc7bf',creatureLime:'#d6ef62',creatureViolet:'#7273c8',creatureCoral:'#ef8466',creatureTeal:'#6dd7b4',circuitContrast:.5,panelContrast:.65,controlContrast:.95,legendContrast:.9,legWeight:1,jointSize:1,creatureGlow:.3,limbEnvelope:.2,scopeGain:.8,chroma:.7,colourFlow:.35,anatomyDetail:.75,audioMotion:.65,audioColour:.8,audioGlow:.45};
 const NAMES={pitch:'PITCH',range:'RANGE',shape:'SHAPE',tone:'CUTOFF',resonance:'RESO',decay:'DECAY',detune:'DETUNE',gate:'GATE',division:'DIV',accent:'ACCENT'};
 const num=(value,fallback=0)=>Number.isFinite(value)?value:fallback;
 const stroke=(c,points,colour,width=.7)=>{if(!points.length)return;c.beginPath();for(let i=0;i<points.length;i++){const p=points[i];if(i)c.lineTo(p.x??p[0],p.y??p[1]);else c.moveTo(p.x??p[0],p.y??p[1]);}c.strokeStyle=colour;c.lineWidth=width;c.stroke();};
@@ -12,8 +12,10 @@ const point=(x,y,angle,distance)=>({x:x+Math.cos(angle)*distance,y:y+Math.sin(an
 const corners=(c,x,y,w,h,size,colour)=>{for(const [xx,yy,sx,sy]of [[x,y,1,1],[x+w,y,-1,1],[x,y+h,1,-1],[x+w,y+h,-1,-1]])stroke(c,[[xx+size*sx,yy],[xx,yy],[xx,yy+size*sy]],colour,.8);};
 const HSL=new Map();
 const colourComponents=hex=>{if(!HSL.has(hex)){if(HSL.size>64)HSL.clear();const s=String(hex).replace('#',''),[r,g,b]=[0,2,4].map(i=>(parseInt(s.slice(i,i+2),16)||0)/255),max=Math.max(r,g,b),min=Math.min(r,g,b),d=max-min,l=(max+min)*.5,h=d?(max===r?(g-b)/d+(g<b?6:0):max===g?(b-r)/d+2:(r-g)/d+4)/6:0;HSL.set(hex,[h,d?d/(1-Math.abs(2*l-1)):0,l]);}return HSL.get(hex);};
-const mixColour=(a,b,t)=>{if(t<=0)return a;if(t>=1)return b;const x=colourComponents(a),y=colourComponents(b),delta=((y[0]-x[0]+1.5)%1)-.5,h=(x[0]+delta*t+1)%1,s=lerp(x[1],y[1],t),l=lerp(x[2],y[2],t),chroma=s*Math.min(l,1-l);return '#'+[0,8,4].map(n=>{const k=(n+h*12)%12,v=l-chroma*Math.max(-1,Math.min(k-3,9-k,1));return Math.round(v*255).toString(16).padStart(2,'0');}).join('');};
+const mixComponents=(a,b,t)=>{const x=colourComponents(a),y=colourComponents(b),delta=((y[0]-x[0]+1.5)%1)-.5;return[(x[0]+delta*t+1)%1,lerp(x[1],y[1],t),lerp(x[2],y[2],t)];};
+const hexColour=([h,s,l])=>{const chroma=s*Math.min(l,1-l);return '#'+[0,8,4].map(n=>{const k=(n+h*12)%12,v=l-chroma*Math.max(-1,Math.min(k-3,9-k,1));return Math.round(clamp(v)*255).toString(16).padStart(2,'0');}).join('');};
 const polygon=(c,points,fill,ink,width=.8)=>{c.beginPath();points.forEach((p,i)=>i?c.lineTo(p[0],p[1]):c.moveTo(p[0],p[1]));c.closePath();if(fill){c.fillStyle=fill;c.fill();}if(ink){c.strokeStyle=ink;c.lineWidth=width;c.stroke();}};
+const audioWire=(c,points,ink,u,weight)=>{if(ink.glow<=.001)return;stroke(c,points,rgba(ink.highlight,ink.glow*.13),weight+Math.min(2,1.8*u)*ink.glow);stroke(c,points,rgba(ink.highlight,ink.glow*.80),Math.max(.45,weight*.6));};
 const controlSize=crawlControlRadius;
 const formatValue=(q,patch,note)=>{const v=q.value,o=patch?.options;if(!o)return v.toFixed(2);if(q.key==='pitch')return note||String(patch.midi);if(q.key==='range')return v<.5?'LOW':'HIGH';if(q.key==='tone')return o.cutoff>=1000?(o.cutoff/1000).toFixed(1)+'k':Math.round(o.cutoff)+'Hz';if(q.key==='resonance')return o.resonance.toFixed(1)+' Q';if(q.key==='decay')return o.decay.toFixed(2)+'s';if(q.key==='detune')return Math.round(o.detune)+'ct';if(q.key==='gate')return Math.round(patch.gate*100)+'%';if(q.key==='division')return({1:'1/16',2:'1/8',3:'3/16',4:'1/4',6:'3/8',8:'1/2'})[patch.division]||String(patch.division);if(q.key==='accent')return Math.round(o.velocity*100)+'%';if(q.key==='shape')return q.lane===0?({sine:'SIN',triangle:'TRI',sawtooth:'SAW',square:'PULSE',wavetable:'WT'})[o.waveform]||'OSC':q.lane===1?'FM '+Number(o.ratio).toFixed(1):q.lane===2?'WT '+Math.round(o.tablePosition*100):'SB '+Math.round((o.sideband??v)*100);return v.toFixed(2);};
 
@@ -123,16 +125,26 @@ export class CrawlRenderer{
    c.beginPath();for(let i=0;i<=70;i++){const t=i/70,phase=t*TAU*2;let v=o.waveform==='square'?(Math.sin(phase)>=0?1:-1):o.waveform==='sawtooth'?(t*2%1)*2-1:o.waveform==='triangle'?Math.asin(Math.sin(phase))*2/Math.PI:Math.sin(phase);if(z.lane===1)v=Math.sin(phase+Math.sin(phase*o.ratio)*(o.index||0)*.4);if(z.lane===2)v=lerp(Math.sin(phase),Math.sin(phase)*Math.cos(phase*3),o.tablePosition||0);if(z.lane===3)v=(Math.sin(phase)+Math.sin(phase*1.04)*.3)*.76;const xx=wx+t*ww,yy=base-v*height*.37;if(i)c.lineTo(xx,yy);else c.moveTo(xx,yy);}c.strokeStyle=rgba(a.legendColour,a.controlContrast*.48);c.lineWidth=.7;c.stroke();
   }
  }
+ audioAt(creature,a,position){
+  const source=creature.audio||{},level=clamp(num(source.level)),reduced=Boolean(a._reduceAudioMotion),segments=source.segments||[],index=Math.min(segments.length-1,Math.max(0,Math.floor(position*segments.length))),local=reduced?level:clamp(num(segments[index],level)),presence=clamp((level+local)*4),attack=reduced?0:clamp(num(source.attack))*presence;
+  return{level,local,energy:reduced?level*.48:local*.72+level*.28,bass:clamp(num(source.bass))*presence,mid:clamp(num(source.mid))*presence,treble:clamp(num(source.treble))*presence,attack,reduced};
+ }
  inkAt(creature,a,position,side,time){
   const pairs={centipede:[a.creatureLime,a.creatureViolet],spider:[a.creatureCoral,a.creatureViolet],beetle:[a.creatureTeal,a.creatureViolet],mantis:[a.creatureViolet,a.creatureLime],scorpion:[a.creatureCoral,a.creatureTeal]},base=pairs[creature.kind]||pairs.spider,chroma=clamp(a.chroma??.7),flow=clamp(a.colourFlow??.35);
-  if(!chroma)return{primary:base[0],secondary:base[1]};
-  // Spatial phase remains attached to the anatomy. Movement rolls the spectral
-  // sheen slowly through it rather than cycling the whole animal's hue.
-  const phase=position*5.1+num(creature.index)*.73+side*.42+flow*(num(creature.angle)*.68+num(creature.travel)*.004)+Math.sin(time*.6*flow+num(creature.phase))*.62,wave=.5+.5*Math.sin(phase),opposite=.5+.5*Math.sin(phase+2.2),accents=[a.creatureTeal,a.creatureCoral,a.creatureViolet,a.creatureLime],other=accents[(num(creature.index)+1)%4];
-  return{primary:mixColour(base[0],other,chroma*(.10+wave*.61)),secondary:mixColour(base[1],accents[(num(creature.index)+3)%4],chroma*(.12+opposite*.72))};
+  // Spatial phase remains attached to anatomy. Audio response is a separate
+  // measured signal, so holding the ambient colour pattern still cannot mute it.
+  const phase=position*5.1+num(creature.index)*.73+side*.42+flow*(num(creature.angle)*.68+num(creature.travel)*.004)+Math.sin(time*.6*flow+num(creature.phase))*.62,wave=.5+.5*Math.sin(phase),opposite=.5+.5*Math.sin(phase+2.2),accents=[a.creatureTeal,a.creatureCoral,a.creatureViolet,a.creatureLime],other=accents[(num(creature.index)+1)%4],first=mixComponents(base[0],other,chroma*(.10+wave*.61)),second=mixComponents(base[1],accents[(num(creature.index)+3)%4],chroma*(.12+opposite*.72)),audio=this.audioAt(creature,a,position),amount=clamp(a.audioColour??.8),direction=[1,-.9,.78,-1.05,1.1][num(creature.index)%5],soft=audio.reduced?.46:1;
+  const hue=amount*soft*direction*((audio.bass*.20-audio.treble*.17+audio.mid*.035)*(.7+audio.local*.3)+audio.attack*.065),strength=amount*(audio.energy*.70+audio.attack*.25);
+  for(const [index,components]of[first,second].entries()){
+   components[0]=(components[0]+hue*(index?1.15:.82)+1)%1;
+   components[1]=lerp(components[1],Math.max(components[1],.93),clamp(strength*.65));
+   components[2]+=Math.min(Math.max(0,.79-components[2]),strength*(index?.15:.115));
+  }
+  const glow=clamp(a.audioGlow??.45)*clamp(audio.energy*.8+audio.attack*.35),highlight=hexColour([first[0],Math.min(.78,first[1]),first[2]+Math.min(.23,Math.max(0,.89-first[2]))]);
+  return{primary:hexColour(first),secondary:hexColour(second),highlight,glow,energy:audio.energy};
  }
- bodySegment(c,s,index,creature,u,primary,secondary,a){
-  const anatomy=crawlAnatomy(creature.kind),plate=anatomy.plates[index]||anatomy.plates.at(-1),length=plate.length*u,width=plate.width*u*(1+num(creature.breathe)*Math.sin(index*.73+.8)),halfL=length*.5,halfW=width*.5,detail=clamp(a.anatomyDetail??.75),kind=creature.kind;
+ bodySegment(c,s,index,creature,u,primary,secondary,a,ink){
+  const response=this.audioAt(creature,a,index/(creature.segments.length||1)),lift=response.reduced?0:response.energy*clamp(a.audioMotion??.65),anatomy=crawlAnatomy(creature.kind),plate=anatomy.plates[index]||anatomy.plates.at(-1),length=plate.length*u,width=plate.width*u*(1+num(creature.breathe)*Math.sin(index*.73+.8)+lift*(creature.kind==='beetle'?.18:.24)),halfL=length*.5,halfW=width*.5,detail=clamp(a.anatomyDetail??.75),kind=creature.kind;
   c.save();c.translate(s.x,s.y);c.rotate(num(s.angle,creature.angle)+num(creature.bodySway)*Math.sin(index*.7+.6)*(kind==='mantis'?.7:.3));
   if(kind==='beetle'){
    // Separate faceted elytra meet at a raised longitudinal seam; the shell is
@@ -155,13 +167,14 @@ export class CrawlRenderer{
   }else{
    c.fillStyle=rgba(a.panelColour,.74);c.fillRect(-halfL,-halfW,length,width);
    rect(c,-halfL,-halfW,length,width,rgba(secondary,.90),.85);
-   if(detail>0){rect(c,-halfL-2*u,-halfW-2*u,length+4*u,width+4*u,rgba(secondary,detail*.58),.65);const offset=2.8*u;stroke(c,[[-halfL,-halfW],[-halfL+offset,-halfW-offset],[halfL+offset,-halfW-offset],[halfL,-halfW]],rgba(secondary,detail*.42),.55);stroke(c,[[halfL,-halfW],[halfL+offset,-halfW-offset],[halfL+offset,halfW-offset],[halfL,halfW]],rgba(secondary,detail*.42),.55);}
+   if(detail>0){rect(c,-halfL-2*u,-halfW-2*u,length+4*u,width+4*u,rgba(secondary,detail*.58),.65);const offset=(2.8+lift*3)*u;stroke(c,[[-halfL,-halfW],[-halfL+offset,-halfW-offset],[halfL+offset,-halfW-offset],[halfL,-halfW]],rgba(secondary,detail*.42),.55);stroke(c,[[halfL,-halfW],[halfL+offset,-halfW-offset],[halfL+offset,halfW-offset],[halfL,halfW]],rgba(secondary,detail*.42),.55);}
    const inset=Math.max(1.9*u,Math.min(width*.23,3.2*u));
    if(index%4===1||kind==='spider'){c.fillStyle=rgba(primary,index%3===0?.52:.16);c.fillRect(-halfL+inset,-halfW+inset,length-inset*2,width-inset*2);}
    stroke(c,[[halfL-inset,-halfW+inset],[-halfL+inset,-halfW+inset],[-halfL+inset,halfW-inset],[halfL-inset,halfW-inset]],rgba(primary,.98),Math.max(.8,1.25*u));
    if(index%2===0)stroke(c,[[halfL-inset,halfW-inset],[halfL-inset,halfW-inset*2.1]],rgba(primary,.68),.8*u);
   }
   const pulse=clamp(creature.pulse||0);if(pulse>.1){stroke(c,[[-halfL*.45,0],[halfL*.45,0]],rgba(primary,pulse*.65),Math.max(.8,u));}
+  audioWire(c,[[-halfL*.62,0],[halfL*.63,0]],ink,u,Math.max(.8,u));
   c.restore();
  }
  appendages(c,creature,a,u,time,weight,joint){
@@ -175,7 +188,7 @@ export class CrawlRenderer{
   }
   for(const claw of creature.claws||[]){
    const {base,knee,tip,innerTip,outerTip,side}=claw;if(!base||!knee||!tip)continue;const ink=this.inkAt(creature,a,-.20,side,time);
-   stroke(c,[base,knee,tip],'rgba(0,0,0,.75)',weight+1.3*u);stroke(c,[base,knee],rgba(ink.secondary,.88),weight);stroke(c,[knee,tip],rgba(ink.primary,.83),weight);
+   stroke(c,[base,knee,tip],'rgba(0,0,0,.75)',weight+1.3*u);stroke(c,[base,knee],rgba(ink.secondary,.88),weight);stroke(c,[knee,tip],rgba(ink.primary,.83),weight);audioWire(c,[base,knee,tip],ink,u,weight);
    dot(c,knee.x,knee.y,1.2*joint,rgba(ink.primary,.93));dot(c,tip.x,tip.y,joint,rgba(ink.secondary,.83));
    if(claw.kind==='pincer'){
     const dx=tip.x-knee.x,dy=tip.y-knee.y,length=Math.hypot(dx,dy)||1,nx=-dy/length,ny=dx/length,shoulder={x:tip.x-dx/length*8*u,y:tip.y-dy/length*8*u};
@@ -196,7 +209,7 @@ export class CrawlRenderer{
    const pos=num(leg.segment)/(creature.segments.length||1),ink=this.inkAt(creature,a,pos,leg.side,time),toe=this.inkAt(creature,a,pos+.28,leg.side,time);
    stroke(c,[hip,knee,foot],'rgba(0,0,0,.82)',weight+1.5*u);
    if(a.creatureGlow>0){c.shadowColor=rgba(ink.secondary,a.creatureGlow*.72);c.shadowBlur=3*u*a.creatureGlow;}
-   stroke(c,[hip,knee],rgba(ink.secondary,leg.planted?.87:.60),weight);stroke(c,[knee,foot],rgba(toe.secondary,leg.planted?.87:.60),weight);c.shadowBlur=0;
+   stroke(c,[hip,knee],rgba(ink.secondary,leg.planted?.87:.60),weight);stroke(c,[knee,foot],rgba(toe.secondary,leg.planted?.87:.60),weight);c.shadowBlur=0;audioWire(c,[hip,knee],ink,u,weight);audioWire(c,[knee,foot],toe,u,weight);
    const ratio=leg.planted?1:.72;dot(c,knee.x,knee.y,1.25*joint,rgba(ink.primary,.98*ratio));dot(c,hip.x,hip.y,.85*joint,rgba(ink.secondary,.8));dot(c,foot.x,foot.y,1.25*joint,rgba(toe.primary,.94*ratio));
    const dx=foot.x-knee.x,dy=foot.y-knee.y,d=Math.hypot(dx,dy)||1,tip={x:foot.x+dx/d*3*u,y:foot.y+dy/d*3*u};stroke(c,[foot,tip],rgba(toe.primary,.61),.65);
    if(leg.planted&&num(leg.index)%3===0)stroke(c,[[foot.x-2*u,foot.y+3*u],[foot.x+2*u,foot.y+3*u]],rgba(toe.primary,.22),.5);
@@ -204,12 +217,12 @@ export class CrawlRenderer{
   this.appendages(c,creature,a,u,time,weight,joint);
   const segs=creature.segments||[{x:creature.x,y:creature.y,angle:creature.angle}],headInk=this.inkAt(creature,a,0,0,time);
   stroke(c,segs,rgba(headInk.secondary,.25),2*u);
-  for(let i=segs.length-1;i>=0;i--){const ink=this.inkAt(creature,a,i/segs.length,0,time);this.bodySegment(c,segs[i],i,creature,u,ink.primary,ink.secondary,a);}
+  for(let i=segs.length-1;i>=0;i--){const ink=this.inkAt(creature,a,i/segs.length,0,time);this.bodySegment(c,segs[i],i,creature,u,ink.primary,ink.secondary,a,ink);}
   const head=segs[0]||creature;
-  for(const feeler of creature.feelers||[]){stroke(c,[feeler.base,feeler.knee,feeler.tip],rgba(headInk.secondary,.61),weight*.78);dot(c,feeler.tip.x,feeler.tip.y,.95*joint,rgba(headInk.primary,.75));}
+  for(const feeler of creature.feelers||[]){stroke(c,[feeler.base,feeler.knee,feeler.tip],rgba(headInk.secondary,.61),weight*.78);audioWire(c,[feeler.base,feeler.knee,feeler.tip],headInk,u,weight*.78);dot(c,feeler.tip.x,feeler.tip.y,.95*joint,rgba(headInk.primary,.75));}
   const reach=creature.reach;if(reach?.base&&reach?.knee&&reach?.tip){
    // An operating limb is part of the animal: no hand icon or contact overlay.
-   const ink=this.inkAt(creature,a,.12,1,time);stroke(c,[reach.base,reach.knee,reach.tip],'rgba(0,0,0,.82)',weight+1.5*u);stroke(c,[reach.base,reach.knee,reach.tip],rgba(ink.secondary,.87),weight);dot(c,reach.knee.x,reach.knee.y,1.25*joint,rgba(ink.primary,.98));dot(c,reach.tip.x,reach.tip.y,1.25*joint,rgba(ink.primary,.94));
+   const ink=this.inkAt(creature,a,.12,1,time);stroke(c,[reach.base,reach.knee,reach.tip],'rgba(0,0,0,.82)',weight+1.5*u);stroke(c,[reach.base,reach.knee,reach.tip],rgba(ink.secondary,.87),weight);audioWire(c,[reach.base,reach.knee,reach.tip],ink,u,weight);dot(c,reach.knee.x,reach.knee.y,1.25*joint,rgba(ink.primary,.98));dot(c,reach.tip.x,reach.tip.y,1.25*joint,rgba(ink.primary,.94));
   }
   if(selected===creature.id){const size=20*u;corners(c,head.x-size,head.y-size,size*2,size*2,5*u,rgba(headInk.primary,.48));}
   c.restore();
@@ -225,7 +238,7 @@ export class CrawlRenderer{
   this.meter(c,panel,a,snapshot,meta);this.response(c,panel,a,meta);this.guides(c,world,a,u,time);
   if(Array.isArray(meta.notes))for(const z of panel.zones)text(c,meta.notes[z.lane]||'',z.x+z.w*.72,z.y+7*u,Math.max(7.2,8*u),rgba(a.legendColour,a.legendContrast*.64),'right');
   const creatures=world.creatures||[];
-  for(const creature of creatures)this.creature(c,creature,meta.reducedMotion?{...a,colourFlow:0}:a,num(creature.scale,u),time,meta.selected);
+  for(const creature of creatures)this.creature(c,creature,meta.reducedMotion?{...a,colourFlow:0,_reduceAudioMotion:true}:a,num(creature.scale,u),time,meta.selected);
   text(c,'AGENTS / '+String(creatures.length).padStart(2,'0'),14,24,Math.max(8.5,9*u),rgba(a.legendColour,a.legendContrast*.73));
   const changed=panel.controls.reduce((n,q)=>n+(time-num(q.changedAt,-100)<.7?1:0),0);if(w>620)text(c,'ACT '+String(changed).padStart(2,'0'),14+Math.max(112,124*u),24,Math.max(7.5,8*u),rgba(a.legendColour,a.legendContrast*.55));
  }
