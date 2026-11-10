@@ -39,8 +39,8 @@ export const definition={
   range('jointSize','Joint marker size',.5,1.8,.05,'Creatures','Size of the small markers at knees, feet and body joints.','×'),
   range('limbEnvelope','Limb construction lines',0,1,.05,'Creatures','Opacity of the faint outer wire cages around articulated legs.'),
   range('creatureGlow','Creature light spill',0,1,.05,'Creatures','Soft light around the creature wires, leaving their centre strokes sharp.'),
-  range('audioMotion','Sound-driven movement',0,1,.05,'Audio response','Amount that measured audio flexes shell plates, antennae, claws and tails. Feet and operating hands stay anchored.'),
-  range('audioColour','Sound-driven colour',0,1,.05,'Audio response','Strength of colour shifts from bass, midrange and high-frequency energy. Independent of ambient colour motion.'),
+  range('audioMotion','Sound-driven movement',0,1,.05,'Audio response','Measured audio bends the body, expands shell plates and flexes appendages. Maximum produces pronounced articulation; feet and operating hands stay anchored.'),
+  range('audioColour','Sound-driven colour',0,1,.05,'Audio response','Strength of spectral colour shifts and illuminated body facets. Maximum produces saturated filled plates. Independent of ambient colour motion.'),
   range('audioGlow','Sound-driven light',0,1,.05,'Audio response','Extra wire and joint brightness on sounding notes. Does not brighten the panel or alter audio volume.'),
   range('audioSensitivity','Response sensitivity',.25,3,.05,'Audio response','Visual sensitivity to the measured output level. Higher values make quieter notes more visible.','×'),
   range('scopeGain','Scope amplitude',.3,2,.05,'Meter','Vertical scale of the measured output waveform in the central strip. Does not alter audio gain.','×')
