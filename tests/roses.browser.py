@@ -63,7 +63,7 @@ async def run(base):
             await route.fulfill(content_type='text/javascript',body=source)
         await context.route('**/collection.js',expose_host)
         async def expose_renderer(route):
-            source=(ROOT/'instruments/roses.js').read_text().replace('renderer=new RosesRenderer','renderer=window.__rosesRenderer=new RosesRenderer')
+            source=(ROOT/'instruments/roses.js').read_text().replace('renderer=new RosesRenderer','renderer=window.__rosesRenderer=new RosesRenderer').replace('const garden=createRoseGarden','const garden=window.__rosesGarden=createRoseGarden')
             await route.fulfill(content_type='text/javascript',body=source)
         await context.route('**/instruments/roses.js',expose_renderer)
         page=await context.new_page();errors=[]
@@ -354,7 +354,7 @@ async def run(base):
             sequence_coverage={}
             for layers in [2,4,5]:
                 await slider('appearance','petalLayers',layers);await close_panels();await page.wait_for_timeout(100)
-                cycles=await page.evaluate("""()=>{const h=__rosesHost,audio=h.audio,original=audio.pulse,old=h.state.sound.scanRate,out={};try{for(const rate of [1,2,4]){const events=[];audio.pulse=(id,midi,options,when,duration)=>events.push({id,midi,when,duration});h.state.sound.scanRate=String(rate);h.controller.setPlaying(false);h.controller.setPlaying(true);for(let s=0;s<64;s++)h.controller.onStep(s%16,10+s*.125);out[rate]=events;}}finally{audio.pulse=original;h.state.sound.scanRate=old;h.controller.setPlaying(false);}return out;}""")
+                cycles=await page.evaluate("""()=>{const h=__rosesHost,audio=h.audio,original=audio.pulse,originalQueue=__rosesGarden.queueRain,old=h.state.sound.scanRate,out={};try{for(const rate of [1,2,4]){const events=[];audio.pulse=(id,midi,options,when,duration)=>events.push({id,midi,when,duration});__rosesGarden.queueRain=(petal,when,velocity)=>events.push({id:"roses-seq-"+petal,when,duration:.65});h.state.sound.scanRate=String(rate);h.controller.setPlaying(false);h.controller.setPlaying(true);for(let s=0;s<64;s++)h.controller.onStep(s%16,10+s*.125);out[rate]=events;}}finally{audio.pulse=original;__rosesGarden.queueRain=originalQueue;h.state.sound.scanRate=old;h.controller.setPlaying(false);}return out;}""")
                 petal_flowers=await page.evaluate('Object.fromEntries(__rosesRenderer.petals.map(p=>[p.id,p.flower]))')
                 for rate,events in cycles.items():
                     petals_events=[e for e in events if e['id'].startswith('roses-seq-')]

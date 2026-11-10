@@ -30,6 +30,22 @@ async def run(base):
   await touch('touchEnd',[]);pcm=await page.evaluate('finishRotorCapture()');assert pcm['rms']>.001 and pcm['peak']<1,pcm;report['directTouchPCM']=pcm
   d=l['spectrum'];point={'x':l['offset']['x']+d['x']+d['r']*.45,'y':l['offset']['y']+d['y']-d['r']*.4}
   await touch('touchStart',[point]);await page.wait_for_timeout(200);sound=await page.evaluate('__rotorHost.state.sound');assert sound['cutoff']>4000 and sound['index']>2,sound;await touch('touchEnd',[]);report['timbreXY']=True
+  # Every named annular control owns its gesture until release, even across bands.
+  control_cases=[('pitch','gate',.56,0,'gate',1.2),('pitch','detune',.85,.7,'detune',14),('spectrum','ratio',.5,-.7,'ratio',4),('spectrum','resonance',-.5,.7,'resonance',1),('spectrum','echo',.6,-.95,'echo',.28),('spectrum','release',.6,.95,'release',2.8)]
+  report['annularControls']={}
+  for disc,kind,x,y,key,minimum in control_cases:
+   d=l[disc];point={'x':l['offset']['x']+d['x']+d['r']*x,'y':l['offset']['y']+d['y']+d['r']*y}
+   await touch('touchStart',[point]);await page.wait_for_timeout(70);value=await page.evaluate('__rotorHost.state.sound.'+key);assert value>minimum,(kind,value);await touch('touchEnd',[]);report['annularControls'][kind]=value
+  # The three core cells produce distinct suspended, triad and seventh voicings.
+  d=l['pitch'];chords=[]
+  for y in [-.16,0,.16]:
+   await touch('touchStart',[{'x':l['offset']['x']+d['x'],'y':l['offset']['y']+d['y']+d['r']*y}]);await page.wait_for_timeout(100);assert await page.evaluate('__rotorHost.audio.sources.size')==3;chords.append(await page.evaluate('__rotorHost.audio.snapshot().voices.filter(v=>v.gate).map(v=>v.midi).sort((a,b)=>a-b)'));await touch('touchEnd',[])
+  assert len({tuple(chord) for chord in chords})==3,chords
+  report['threeChordCells']=chords
+  assert await page.evaluate('__rotorHost.audio.sources.size')==0
+  await touch('touchStart',[{'x':640,'y':l['offset']['y']+l['left']['h']*.35}]);await page.wait_for_timeout(100);assert await page.evaluate('__rotorHost.state.sound.feedback')>.3;await touch('touchEnd',[]);report['feedbackBus']=True
+  r=l['right'];await page.touchscreen.tap(l['offset']['x']+r['x']+8+(r['w']-16)*.125,l['offset']['y']+r['y']+r['h']-18);assert await page.evaluate('__rotorHost.state.sound.waveform')=='sine';report['waveformPads']=True
+  await page.touchscreen.tap(l['offset']['x']+r['x']+8+(r['w']-16)*.875,l['offset']['y']+r['y']+r['h']-18);assert await page.evaluate('__rotorHost.state.sound.scanRate')=='4';report['clockPad']=True
   await page.evaluate(CAPTURE);await page.locator('#play').click();await page.wait_for_timeout(1700);pcm=await page.evaluate('finishRotorCapture()');assert pcm['rms']>.001 and pcm['peak']<1;report['sequencePCM']=pcm
   await page.screenshot(path=str(OUT/'desktop-playing.png'));await page.locator('#play').click()
   await page.emulate_media(reduced_motion='reduce');await page.wait_for_timeout(100);frozen=await page.evaluate('__rotorHost.controller.getData()');await page.wait_for_timeout(250);still=await page.evaluate('__rotorHost.controller.getData()');assert frozen['phase']==still['phase'] and frozen['meshPhase']==still['meshPhase'];report['reducedMotionStopsRotationAndMesh']=True;await page.emulate_media(reduced_motion='no-preference')

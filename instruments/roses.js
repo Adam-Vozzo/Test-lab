@@ -1,14 +1,17 @@
 import {clamp,createSurface,bindPointers,label,line,rgba} from './kit.js';
 import {createRoseGarden} from './roses-garden.js';
-import {RosesRenderer,ROSE_CENTRES} from './roses-renderer.js';
+import {RosesRenderer} from './roses-renderer.js';
 import {signalRenderProfile,renderPixelRatio,createFrameGate} from '../render-performance.js';
 const range=(key,label,min,max,step,section,description,unit='')=>({key,label,min,max,step,section,description,unit});
 export const definition={
  id:'roses',name:'Roses',commonSoundControls:false,keyboardNotes:true,
  theme:{bg:'#020303',fg:'#bbc7bd',accent:'#df4c8b',muted:'#75857d'},
- defaultSound:{waveform:'roses',roseBody:.32,roseGlass:.72,roseDecay:.56,roseWidth:.18,roseMotion:.22,attack:.02,decay:.35,sustain:.72,release:1.6,gain:.72,cutoff:12000,resonance:.5,echo:.2,delayTime:.39,feedback:.28,glide:.06,detune:0,pan:0,gate:.55,scanRate:'2',bedLevel:.24},
- defaultAppearance:{flowerFraming:1.5,growthDensity:.9,growthMotion:.45,pixelScale:2,mossColour:'#548b86',petalColour:'#d82c75',leafColour:'#82aa8e',petalWidth:1.25,petalCurl:.55,petalLayers:5,bloomScale:1.1,bouquetSpread:1.05,leafSize:.9,glyphStyle:'ascii',glyphDensity:1.4,glyphSize:1.45,exposure:1.1,wireContrast:.4,lineWeight:.5,glow:.85,glowRadius:.6,saturation:1.3,highlightGain:1.25,sceneScale:1.15,revealDuration:6,idleMotion:1.5,idleRotation:.035,motionRate:.8,response:.2,spray:1,readoutContrast:.88,readoutSize:1},
+ defaultSound:{waveform:'roses',roseBody:.32,roseGlass:.72,roseDecay:.56,roseWidth:.18,roseMotion:.22,attack:.02,decay:.35,sustain:.72,release:1.6,gain:.72,cutoff:12000,resonance:.5,echo:.2,delayTime:.39,feedback:.28,glide:.06,detune:0,pan:0,gate:.55,scanRate:'2',bedLevel:.24,rainDensity:.7,rainWind:.25,growthVoice:.65},
+ defaultAppearance:{flowerFraming:1.75,growthDensity:1.1,growthMotion:.65,pixelScale:2,mossColour:'#68ae90',bioGlow:.9,corrosion:.6,petalColour:'#d82c75',leafColour:'#82aa8e',petalWidth:1.25,petalCurl:.55,petalLayers:5,bloomScale:1.1,bouquetSpread:1.05,leafSize:.9,glyphStyle:'ascii',glyphDensity:1.4,glyphSize:1.45,exposure:1.1,wireContrast:.4,lineWeight:.5,glow:.85,glowRadius:.6,saturation:1.3,highlightGain:1.25,sceneScale:1.15,revealDuration:6,idleMotion:1.5,idleRotation:.035,motionRate:.8,response:.2,spray:1,readoutContrast:.88,readoutSize:1},
  soundControls:[
+  range('rainDensity','Rainfall',0,1,.01,'Ecology','Density of falling rain and extra petal strikes during playback. Zero silences rainfall.'),
+  range('rainWind','Rain direction',-.8,.8,.01,'Ecology','Horizontal drift of falling droplets.'),
+  range('growthVoice','Growth voice',0,1,.01,'Ecology','Level of the stem, branch, leaf and opening-bloom tones during growth. Regrow repeats the lifecycle.'),
   range('roseBody','Body level',0,1,.01,'Rose voice','Level of the warm sustained fundamental beneath each petal chime.'),
   range('roseGlass','Glass level',0,1,.01,'Rose voice','Level of the three high, inharmonic partials struck by each petal.'),
   range('roseDecay','Glass decay',0,1,.01,'Rose voice','Time for the high partials to ring out after a petal is struck.'),
@@ -18,6 +21,7 @@ export const definition={
   range('decay','Decay',.05,2,.01,'Envelope','Time for the complete petal voice to settle after its initial peak.','s'),
   range('sustain','Sustain',0,1,.01,'Envelope','Level retained by a held petal; the glass partials also have their own decay.'),
   range('release','Release',.1,5,.05,'Envelope','Time for a released petal to fade.','s'),
+  range('resonance','Filter resonance',0,8,.1,'Output','Emphasis around the cutoff; controlled by sideways movement of the filter leaf.','Q'),
   range('cutoff','Low-pass',800,18000,50,'Output','Brightness of the entire voice after synthesis.','Hz'),
   range('echo','Delay level',0,.45,.01,'Output','Amount of the soft repeated chimes.'),
   range('delayTime','Delay time',.08,.8,.01,'Output','Time between delayed chimes.','s'),
@@ -27,8 +31,10 @@ export const definition={
   {key:'scanRate',label:'Petal interval',kind:'select',options:[['1','1/16'],['2','1/8'],['4','1/4']],section:'Sequence',description:'Musical spacing between the petals sounded by Play.'}
  ],
  appearanceControls:[
-  {key:'mossColour',label:'Growth colour',kind:'color',section:'Interface growth',description:'Colour of the pixel fern stems and perimeter foliage.'},
-  range('growthDensity','Growth density',0,1.5,.05,'Interface growth','Number of pixel fern branches around both panels. Zero clears the perimeter.'),
+  range('bioGlow','Bioluminescence',0,1.5,.05,'Interface growth','Brightness of luminous fungal tips, spores and moss halos.'),
+  range('corrosion','Signal corrosion',0,1,.05,'Interface growth','Frequency of small displaced data fragments around the decaying circuitry.'),
+  {key:'mossColour',label:'Growth colour',kind:'color',section:'Interface growth',description:'Colour of the roots, leaf veins and mycelium spread through the interface.'},
+  range('growthDensity','Growth density',0,1.5,.05,'Interface growth','Density of roots, moss and leaf colonies growing across both surfaces. Zero removes the vegetation.'),
   range('growthMotion','Growth motion',0,1,.05,'Interface growth','Speed of gentle foliage movement. Does not alter the flower motion.'),
   range('pixelScale','Foliage pixel size',1,4,1,'Interface growth','Pixel size of the interface foliage; the rose character size is controlled separately.','px'),
   {key:'petalColour',label:'Petal colour',kind:'color',section:'Petals',description:'Base colour of the rose glyphs and petal contours.'},
@@ -61,20 +67,37 @@ export const definition={
   range('readoutSize','Annotation size',.8,1.4,.05,'Annotations','Size of the sparse technical readouts.','×')
  ]
 };
-export const rosePetalDegree=(petal,flower=0)=>petal>=220?2+(petal-220)%5:8+((petal+flower*2)%4);
+export const rosePetalDegree=(petal,flower=0)=>petal>=220?2+(petal-220)%5:7+flower*2+(petal%3);
 const ZOOM_MIN=.65,ZOOM_MAX=3.2;
 
 export function mount(host,api){
- const garden=createRoseGarden(host,api,playFlower);
+ const garden=createRoseGarden(host,api,playFlower,regrow);
  const surface=createSurface(garden.flower,{label:'Roses. Touch individual petals for chimes; leaves and stems play lower notes. Drag between petals to play different notes. Drag empty space to orbit; pinch anywhere or use the mouse wheel to zoom. Shift-drag to pan a close view.'}),c=surface.ctx,profile=signalRenderProfile(),gate=createFrameGate(profile.mobile?60:90),renderer=new RosesRenderer(surface.canvas,{mobile:profile.mobile});
  surface.resize=()=>{const r=surface.canvas.getBoundingClientRect(),w=Math.max(1,r.width),h=Math.max(1,r.height),d=renderPixelRatio(w,h,window.devicePixelRatio||1,{maxDpr:1.5,maxPixels:profile.mobile?1000000:1700000});if(surface.canvas.width!==Math.round(w*d)||surface.canvas.height!==Math.round(h*d)||surface.dpr!==d){surface.canvas.width=Math.max(1,Math.round(w*d));surface.canvas.height=Math.max(1,Math.round(h*d));c.setTransform(d,0,0,d,0,0);}Object.assign(surface,{width:w,height:h,dpr:d});renderer.resize(w,h,d);return surface;};surface.resize();
- const contacts=new Map(),provenance=new Map(),seenOnsets=new Set(),energy=new Float32Array(256);let camera={yaw:.19433333333333686,pitch:6.55833333333334,zoom:.7590744829719918,offsetX:0,offsetY:0},time=0,startTime=null,lastTime=0,scanCursor=0,barCount=0,transport=false,destroyed=false,lastNote=api.quantize(9),lastStatus='',pinch=null,focus=null,cursor=null,revealProgress=0,idleYaw=0,idleSpeed=0,lastInteraction=-Infinity;
+ const contacts=new Map(),provenance=new Map(),seenOnsets=new Set(),energy=new Float32Array(256);let growthIndex=0,growthAudible=false,rainSerial=0;let camera={yaw:.19433333333333686,pitch:6.55833333333334,zoom:.7590744829719918,offsetX:0,offsetY:0},time=0,startTime=null,lastTime=0,scanCursor=0,barCount=0,transport=false,destroyed=false,lastNote=api.quantize(9),lastStatus='',pinch=null,focus=null,cursor=null,revealProgress=0,idleYaw=0,idleSpeed=0,lastInteraction=-Infinity;
  const appearance=()=>({...definition.defaultAppearance,...api.state.appearance});
  const sourceId=(pointer,petal)=>'roses-touch-'+pointer+'-'+petal;
  function playFlower(flower,id,on,cancel=false){
   if(!on){(cancel?api.noteCancel:api.noteOff)(id);return;}
-  const candidates=renderer.petals.filter(p=>p.flower===flower),petal=candidates[Math.floor(candidates.length*.5)];if(!petal)return;
-  provenance.set(id,{petal:petal.id,flower});lastNote=api.quantize(rosePetalDegree(petal.id,flower));focus={id:petal.id,time};energy[petal.id]=.9;api.noteOn(id,lastNote,{velocity:.7,pan:(flower/4-.5)*.7});
+  const candidates=renderer.petals.filter(p=>p.flower===flower),petal=candidates.filter(p=>p.id%3===0)[Math.floor(candidates.length/6)]||candidates[0];if(!petal)return;
+  growthAudible=true;provenance.set(id,{petal:petal.id,flower});lastNote=api.quantize(rosePetalDegree(petal.id,flower));focus={id:petal.id,time};energy[petal.id]=.9;api.noteOn(id,lastNote,{velocity:.7,pan:(flower/4-.5)*.7});
+ }
+ function regrow(){
+  api.audio.start();startTime=time;revealProgress=0;growthIndex=0;growthAudible=true;garden.clearRain();
+ }
+ const growthEvents=[{at:.08,id:244,degree:-5,body:.95},{at:.22,id:244,degree:-2,body:.8},{at:.34,id:247,degree:2,body:.7},{at:.41,id:245,degree:4,body:.6},{at:.49,id:250,degree:5,body:.5},{at:.55,id:251,degree:7,body:.45},{at:.64,flower:2,degree:9},{at:.72,flower:1,degree:11},{at:.79,flower:0,degree:12},{at:.86,flower:3,degree:14},{at:.94,flower:4,degree:16}];
+ function rainImpact(petal,velocity){
+  const item=renderer.petalsById.get(petal);if(!item)return;const id='roses-rain-'+(++rainSerial),midi=api.quantize(rosePetalDegree(petal,item.flower));
+  provenance.set(id,{petal,flower:item.flower});api.audio.pulse(id,midi,{...api.state.sound,attack:.003,velocity,pan:(item.flower/4-.5)*.8},api.audio.now,60/api.state.bpm/4*(Number(api.state.sound.scanRate)||2)*api.state.sound.gate);focus={id:petal,time};energy[petal]=1;renderer.strike(petal,time,.55);
+ }
+ function growthSound(){
+  if(api.reducedMotion){growthIndex=growthEvents.length;return;}
+  while(growthIndex<growthEvents.length&&revealProgress>=growthEvents[growthIndex].at){
+   const event=growthEvents[growthIndex++];if(!growthAudible||api.state.sound.growthVoice<=0||api.audio.context?.state!=='running')continue;
+   const petal=event.id??renderer.petals.find(p=>p.flower===event.flower)?.id;if(petal===undefined)continue;
+   const id='roses-growth-'+growthIndex;provenance.set(id,{petal,flower:event.flower??-1});
+   api.audio.pulse(id,api.quantize(event.degree),{...api.state.sound,roseBody:event.body??.25,roseGlass:event.body?.3:.85,attack:event.body?.08:.014,release:2.3,velocity:.5*api.state.sound.growthVoice,pan:(growthIndex/11-.5)*.8},api.audio.now,event.body?.4:.18);energy[petal]=.7;
+  }
  }
  function emit(id,amount=1){if(!api.reducedMotion)renderer.emitPetal(id,time,amount);}
  function soundPetal(p,q,hit,first=false){
@@ -106,7 +129,7 @@ export function mount(host,api){
   setZoom(pinch.camera.zoom*distance/pinch.distance,(group[0].x+group[1].x)/2/surface.width,(group[0].y+group[1].y)/2/surface.height,pinch.camera,pinch.x,pinch.y);return true;
  }
  const unbind=bindPointers(surface.canvas,{
-  down(p){lastInteraction=time;cursor={x:p.x,y:p.y,time};const pan=p.event?.shiftKey,hit=pan?null:renderer.pick(p.x,p.y),q={id:p.id,kind:pan?'pan':hit?'petal':'orbit',x:p.x,y:p.y,source:null,ownedSources:new Set()};if(!hit)anchorView();contacts.set(p.id,q);if(hit)soundPetal(p,q,hit,true);resetPinch();},
+  down(p){growthAudible=true;lastInteraction=time;cursor={x:p.x,y:p.y,time};const pan=p.event?.shiftKey,hit=pan?null:renderer.pick(p.x,p.y),q={id:p.id,kind:pan?'pan':hit?'petal':'orbit',x:p.x,y:p.y,source:null,ownedSources:new Set()};if(!hit)anchorView();contacts.set(p.id,q);if(hit)soundPetal(p,q,hit,true);resetPinch();},
   move(p){cursor={x:p.x,y:p.y,time};const q=contacts.get(p.id);if(!q)return;const dx=p.x-q.x,dy=p.y-q.y;q.x=p.x;q.y=p.y;if(movePinch())return;
    if(q.kind==='petal'){const hit=renderer.pick(p.x,p.y);if(hit)soundPetal(p,q,hit);return;}
    if(q.kind==='pan'){camera.offsetX+=dx/surface.width;camera.offsetY+=dy/surface.height;constrainView();}
@@ -132,7 +155,7 @@ export function mount(host,api){
  }
 
  return{
-  frame(t,dt){if(destroyed||!gate.due(t*1000))return;time=t;if(startTime===null)startTime=t;dt=Math.min(.1,lastTime?t-lastTime:dt);lastTime=t;const v=appearance(),snap=api.audio.snapshot();garden.frame(v,t,snap);surface.resize();
+  frame(t,dt){if(destroyed||!gate.due(t*1000))return;time=t;if(startTime===null){startTime=t;growthAudible=api.audio.context?.state==='running';}dt=Math.min(.1,lastTime?t-lastTime:dt);lastTime=t;const v=appearance(),snap=api.audio.snapshot();garden.frame(v,t,snap);surface.resize();
    for(let i=0;i<energy.length;i++)energy[i]*=Math.exp(-dt*3.2);
    const audible=new Set();for(const voice of snap.voices){const p=provenance.get(voice.id),onset=voice.id+':'+voice.started;audible.add(onset);if(p){energy[p.petal]=Math.max(energy[p.petal],clamp(voice.level*2));if(!seenOnsets.has(onset)&&voice.level>.002){if(!api.reducedMotion)renderer.strike(p.petal,time,.75);emit(p.petal);seenOnsets.add(onset);}}}for(const onset of seenOnsets)if(!audible.has(onset))seenOnsets.delete(onset);
    revealProgress=Math.max(revealProgress,api.reducedMotion||v.revealDuration<=0?1:clamp((t-startTime)/v.revealDuration));
@@ -142,13 +165,14 @@ export function mount(host,api){
    else if(contacts.size||t-lastInteraction<2||revealProgress<1){idleSpeed=0;}
    else{const target=(v.idleRotation??.035)*(v.motionRate??1);idleSpeed+=(target-idleSpeed)*(1-Math.exp(-dt*1.4));idleYaw+=idleSpeed*dt;}
    renderer.draw({...v,sceneScale:v.sceneScale*v.flowerFraming},t,{...camera,yaw:camera.yaw+idleYaw},energy,revealProgress,api.reducedMotion);
+   growthSound();garden.drawRain(v,t,snap,renderer.projectedPetals,rainImpact);
    for(const q of contacts.values())if(q.kind==='petal'&&t-(q.lastShed??0)>.32){emit(q.petal,.35);q.lastShed=t;}
    drawAnnotations(v,snap);const latest=snap.voices.filter(q=>q.level>.01).sort((a,b)=>b.started-a.started)[0];if(latest)lastNote=latest.midi;const status=api.noteName(lastNote)+' · '+snap.voices.filter(q=>q.gate).length+' voices';if(lastStatus!==status){api.setStatus(status);lastStatus=status;}
    for(const id of provenance.keys())if(!snap.voices.some(q=>q.id===id)&&!api.audio.sources?.has(id)&&![...contacts.values()].some(q=>q.source===id))provenance.delete(id);
   },
-  onStep(step,when){const interval=Number(api.state.sound.scanRate)||2;if(step%interval)return;const sequenceIndex=scanCursor++%16,index=garden.pattern[sequenceIndex];garden.scheduleStep(sequenceIndex,when);if(index<0)return;const candidates=renderer.petals.filter(p=>p.flower===index),entry=candidates[(scanCursor*3)%Math.max(1,candidates.length)];if(!entry)return;const petal=entry.id,flower=entry.flower,id='roses-seq-'+petal,midi=api.quantize(rosePetalDegree(petal,flower));provenance.set(id,{petal,flower});api.audio.pulse(id,midi,{...api.state.sound,velocity:.66,pan:ROSE_CENTRES[flower][0]*.4},when,60/api.state.bpm/4*interval*api.state.sound.gate);if(step===0){const chord=[[3,5,7],[1,5,8],[0,4,7,10]][Math.floor(barCount++/2)%3];if(api.state.sound.bedLevel>0)for(const degree of chord)api.audio.pulse('roses-bed-'+degree,api.quantize(degree),{...api.state.sound,roseLayer:1,roseBody:.9,attack:.8,release:2,gain:api.state.sound.bedLevel,velocity:.65},when,60/api.state.bpm*3.5);}},
-  setPlaying(playing){if(playing&&!transport){scanCursor=0;barCount=0;}transport=playing;},
-  update(){},cancel(){garden.cancel();for(const q of contacts.values())if(q.source)(api.noteCancel||api.noteOff)(q.source);for(const id of provenance.keys())(api.noteCancel||api.noteOff)(id);contacts.clear();pinch=null;},
+  onStep(step,when){const interval=Number(api.state.sound.scanRate)||2;if(step%interval)return;const sequenceIndex=scanCursor++%16,index=garden.pattern[sequenceIndex];garden.scheduleStep(sequenceIndex,when);if(index<0)return;const candidates=renderer.petals.filter(p=>p.flower===index),entry=candidates[(scanCursor*3)%Math.max(1,candidates.length)];if(!entry)return;const petal=entry.id;if(api.state.sound.rainDensity>0){garden.queueRain(petal,when,.45+api.state.sound.rainDensity*.25);if(api.state.sound.rainDensity>.75){const extra=candidates[(scanCursor*7+3)%candidates.length];garden.queueRain(extra.id,when+.18,.38);}}if(step===0){const chord=[[3,5,7],[1,5,8],[0,4,7,10]][Math.floor(barCount++/2)%3];if(api.state.sound.bedLevel>0)for(const degree of chord)api.audio.pulse('roses-bed-'+degree,api.quantize(degree),{...api.state.sound,roseLayer:1,roseBody:.9,attack:.8,release:2,gain:api.state.sound.bedLevel,velocity:.65},when,60/api.state.bpm*3.5);}},
+  setPlaying(playing){if(playing&&!transport){scanCursor=0;barCount=0;}transport=playing;if(!playing)garden.clearRain();else if(revealProgress<1)growthAudible=true;},
+  update(){},cancel(){growthAudible=false;garden.cancel();for(const q of contacts.values())if(q.source)(api.noteCancel||api.noteOff)(q.source);for(const id of provenance.keys())(api.noteCancel||api.noteOff)(id);contacts.clear();pinch=null;},
   getData(){return{camera:{...camera},pattern: garden.pattern.slice()};},setData(data){garden.setPattern(data?.pattern);if(data?.camera){idleYaw=0;idleSpeed=0;lastInteraction=time;const p=data.camera;if(Number.isFinite(p.yaw))camera.yaw=p.yaw;if(Number.isFinite(p.pitch))camera.pitch=p.pitch;if(Number.isFinite(p.zoom))camera.zoom=clamp(p.zoom,ZOOM_MIN,ZOOM_MAX);camera.offsetX=Number.isFinite(p.offsetX)?p.offsetX:0;camera.offsetY=Number.isFinite(p.offsetY)?p.offsetY:0;constrainView();}},
   destroy(){destroyed=true;garden.destroy();unbind();surface.canvas.removeEventListener('wheel',wheel);surface.canvas.removeEventListener('pointermove',hover);for(const id of provenance.keys())(api.noteCancel||api.noteOff)(id);renderer.dispose();surface.destroy();}
  };
