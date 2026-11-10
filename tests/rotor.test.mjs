@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {rotorLayout,rotorCoordinates,definition} from '../instruments/rotor.js';
+import {rotorLayout,rotorCoordinates,rotorControl,definition} from '../instruments/rotor.js';
 import {TAU} from '../instruments/kit.js';
 test('rotating pitch sectors use the same angle for touch and drawing',()=>{
  for(const phase of[0,.2,Math.PI,TAU-.01])for(const [w,h]of[[844,327],[1280,820],[390,740]]){
@@ -13,4 +13,9 @@ test('split surfaces remain in their panels and spectrum coordinates have intuit
 });
 test('all instrument-specific controls have bounded defaults',()=>{
  for(const [kind,controls]of[['Sound',definition.soundControls],['Appearance',definition.appearanceControls]])for(const control of controls){const value=definition['default'+kind][control.key];assert.notEqual(value,undefined,control.key);if(control.min!==undefined)assert.ok(value>=control.min&&value<=control.max,control.key);}
+});
+
+test('nested control bands map to distinct musical parameters',()=>{
+ const l=rotorLayout(1280,820);
+ for(const [disc,x,y,kind]of[['pitch',0,0,'chord'],['pitch',.6,0,'gate'],['pitch',.9,0,'pitch'],['pitch',1.1,0,'detune'],['spectrum',0,0,'spectrum'],['spectrum',.5,-.7,'ratio'],['spectrum',.5,.7,'resonance'],['spectrum',.6,-.95,'echo'],['spectrum',.6,.95,'release']]){const d=l[disc];assert.equal(rotorControl(d.x+x*d.r,d.y+y*d.r,l).kind,kind);}
 });

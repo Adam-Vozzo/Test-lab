@@ -1,4 +1,4 @@
-"""Native PWA update and offline regression using the archived v35 worker.
+"""Native PWA update and offline regression using the archived v36 worker.
 Run after source edits finish: python3 tests/collection-offline.browser.py
 Requires Python Playwright. Uses a private loopback server, no WebGL or remote assets.
 """
@@ -18,7 +18,7 @@ from playwright.async_api import async_playwright
 ROOT=Path(__file__).resolve().parents[1]
 OUT=ROOT/'qa'/'collection-offline'
 CURRENT=(ROOT/'sw.js').read_text()
-PREVIOUS=(ROOT/'tests/fixtures/sw-v35.js').read_text()
+PREVIOUS=(ROOT/'tests/fixtures/sw-v36.js').read_text()
 VERSION=re.search(r'\$\{CACHE_PREFIX\}([^`]+)',CURRENT).group(1)
 OLD_VERSION=re.search(r'\$\{CACHE_PREFIX\}([^`]+)',PREVIOUS).group(1)
 NEW='duo-ember-shell-'+VERSION
@@ -68,7 +68,7 @@ async def run(base):
                 await page.mouse.up();await page.evaluate("dispatchEvent(new Event('duo:transport'))")
             await page.wait_for_function('window.ready');report['activatedAfterRelease']=True
             cache=await page.evaluate('''async()=>{const names=await caches.keys(),name=names.find(n=>n.startsWith('duo-ember-shell-')),c=await caches.open(name),assets=[];for(const request of await c.keys()){const bytes=await(await c.match(request)).arrayBuffer(),hash=await crypto.subtle.digest('SHA-256',bytes);assets.push({path:new URL(request.url).pathname.split('/Test-lab/')[1],sha256:[...new Uint8Array(hash)].map(b=>b.toString(16).padStart(2,'0')).join('')});}return{names,name,assets};}''')
-            assert set(cache['names'])=={NEW,'unrelated-app'};assert len(cache['assets'])==70,len(cache['assets'])
+            assert set(cache['names'])=={NEW,'unrelated-app'};assert len(cache['assets'])==71,len(cache['assets'])
             def verify_hashes():
                 for asset in cache['assets']:assert hashlib.sha256((ROOT/asset['path']).read_bytes()).hexdigest()==asset['sha256'],asset['path']
             verify_hashes();report['cachedFiles']=cache['assets'];report['cacheCount']=len(cache['assets']);report['unrelatedCachePreserved']=True
