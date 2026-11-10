@@ -456,12 +456,17 @@ async def run(base):
             anchor_target=await petal(flower=0)
             anchor=await page.evaluate("id=>{const p=__rosesRenderer.projectPetal(id),b=document.querySelector('#stage canvas').getBoundingClientRect();return{x:p.x+b.x,y:p.y+b.y,id};}",anchor_target['petal'])
             serial=await page.evaluate('__rosesHost.audio._serial')
+            await page.evaluate("window.__roseWheel=null;document.querySelector('#stage canvas').addEventListener('wheel',e=>window.__roseWheel={x:e.clientX,y:e.clientY},{once:true})")
             await page.mouse.move(anchor['x'],anchor['y']);await page.mouse.wheel(0,-3000)
             await page.wait_for_function('__rosesHost.controller.getData().camera.zoom>3.19')
             await page.wait_for_timeout(100)
             close_camera=await camera()
             anchored=await page.evaluate("id=>{const p=__rosesRenderer.projectPetal(id),b=document.querySelector('#stage canvas').getBoundingClientRect();return{x:p.x+b.x,y:p.y+b.y};}",anchor['id'])
-            anchor_error=((anchored['x']-anchor['x'])**2+(anchored['y']-anchor['y'])**2)**.5
+            # Native wheel coordinates are rounded to CSS pixels; preserve the point
+            # actually reported by the event, not a fractional test cursor.
+            wheel=await page.evaluate('__roseWheel');ratio=close_camera['zoom']/overview['zoom']
+            expected={axis:wheel[axis]+(anchor[axis]-wheel[axis])*ratio for axis in ['x','y']}
+            anchor_error=((anchored['x']-expected['x'])**2+(anchored['y']-expected['y'])**2)**.5
             assert abs(close_camera['zoom']-3.2)<1e-8 and anchor_error<1.5,(close_camera,anchor,anchored)
             await page.mouse.wheel(0,-3000);await page.wait_for_timeout(100)
             assert await camera()==close_camera,'Scrolling against the zoom limit moved the camera'
