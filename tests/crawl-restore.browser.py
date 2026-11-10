@@ -20,10 +20,12 @@ OUT=ROOT/'qa'/'crawl-restore'
 GEOMETRY=r'''() => {
  const w=__crawlRestoreWorld,points=w.creatures.flatMap(c=>[
   {id:c.id,kind:'head',...c},...c.segments.map(p=>({id:c.id,kind:'segment',...p})),
+  ...(c.tail||[]).map(p=>({id:c.id,kind:'tail',...p})),
+  ...(c.claws||[]).flatMap(claw=>['base','knee','tip','innerTip','outerTip'].map(key=>({id:c.id,kind:'claw-'+key,...claw[key]}))),
   ...c.legs.flatMap(l=>['hip','knee','foot'].map(key=>({id:c.id,kind:key,...l[key]}))),
   ...(c.reach?['base','knee','tip'].map(key=>({id:c.id,kind:'arm-'+key,...c.reach[key]})):[])
  ]),invalid=points.filter(p=>!Number.isFinite(p.x)||!Number.isFinite(p.y)||p.x<-.01||p.y<-.01||p.x>w.panel.w+.01||p.y>w.panel.h+.01);
- return{size:[w.panel.w,w.panel.h],population:w.creatures.length,time:w.time,points:points.length,
+ return{size:[w.panel.w,w.panel.h],population:w.creatures.length,species:w.creatures.map(c=>c.kind),time:w.time,points:points.length,
   invalid:invalid.map(p=>({id:p.id,kind:p.kind,x:p.x,y:p.y})),controls:w.getData().controls};
 }'''
 
@@ -66,6 +68,7 @@ async def run(base):
      await page.wait_for_function('seed=>__crawlRestoreWorld.seed===seed',arg=payload['data']['seed'])
      geometry=await page.evaluate(GEOMETRY)
      assert geometry['population']==5 and geometry['time']==0 and not geometry['invalid'],{'case':case,'operation':'import',**geometry}
+     assert geometry['species']==['centipede','spider','beetle','mantis','scorpion'],geometry
      assert geometry['controls']==payload['data']['controls']
      report['cases'].append({'angle':spec['angle'],'viewport':[width,height],**{k:v for k,v in geometry.items()if k!='controls'}})
    assert not errors,errors

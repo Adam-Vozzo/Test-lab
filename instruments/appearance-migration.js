@@ -9,11 +9,11 @@ export function migrateAppearance(id, saved, defaults){
   return untouched?{...defaults}:value;
 }
 
-export const SOUND_REVISION=4;
+export const SOUND_REVISION=5;
 export const FIRST_RELEASE_SOUND={"carrier":{"waveform":"sine","attack":0.025,"decay":0.25,"sustain":0.75,"release":0.75,"cutoff":9500,"resonance":0.6,"detune":0,"ratio":2,"index":1.8,"gain":0.28,"pan":0,"glide":0.055},"cellular":{"waveform":"triangle","attack":0.06,"decay":0.45,"sustain":0.7,"release":2.4,"cutoff":4800,"resonance":2.1,"detune":6,"ratio":1.5,"index":0.35,"gain":0.34,"pan":0,"glide":0.09,"echo":0.19},"census":{"waveform":"triangle","attack":0.015,"decay":0.2,"sustain":0.5,"release":0.45,"cutoff":4200,"resonance":1.4,"detune":0,"ratio":1,"index":0,"gain":0.24,"pan":0,"glide":0.025,"regionMix":0.8,"gate":0.6},"swarm":{"waveform":"sawtooth","attack":0.018,"decay":0.22,"sustain":0.42,"release":0.9,"cutoff":2400,"resonance":2.8,"detune":6,"ratio":2,"index":0,"gain":0.24,"pan":0,"glide":0.025,"translate":0,"spread":7},"graticule":{"waveform":"sine","attack":0.012,"decay":0.3,"sustain":0.6,"release":1.3,"cutoff":10000,"resonance":1,"detune":0,"ratio":1.5,"index":0.75,"gain":0.3,"pan":0,"glide":0.035,"echo":0.15},"waveform":{"waveform":"triangle","attack":0.025,"decay":0.2,"sustain":0.5,"release":0.55,"cutoff":4800,"resonance":2.2,"detune":5,"ratio":1,"index":0,"gain":0.24,"pan":0,"glide":0.025,"crush":0.28,"gate":0.7},"geo":{"waveform":"sine","attack":0.025,"decay":0.3,"sustain":0.6,"release":0.8,"cutoff":5000,"resonance":2,"detune":0,"ratio":2,"index":0.65,"gain":0.24,"pan":0,"glide":0.08,"regionMix":0.8,"pitchSnap":true},"hand":{"waveform":"triangle","attack":0.025,"decay":0.3,"sustain":0.48,"release":1.05,"cutoff":4400,"resonance":1.4,"detune":3,"ratio":2,"index":0.7,"gain":0.24,"pan":0,"glide":0.025},"structure":{"waveform":"triangle","attack":0.009,"decay":0.24,"sustain":0.25,"release":0.8,"cutoff":5400,"resonance":2,"detune":5,"ratio":3,"index":0.9,"gain":0.24,"pan":0,"glide":0.025},"granular":{"waveform":"triangle","attack":0.025,"decay":0.25,"sustain":0.65,"release":0.7,"cutoff":6500,"resonance":1,"detune":0,"ratio":1,"index":0,"gain":0.24,"pan":0,"glide":0.025,"grainSize":0.18,"density":18,"pitch":0,"pitchJitter":3,"position":0.4,"scan":0.06,"jitter":0.12,"stereo":0.7,"grainGain":0.23}};
 
 export function migrateSound(id,saved,defaults){
-  const value=saved?.sound,previous=(saved?.soundRevision===3?THIRD_RELEASE_SOUND:saved?.soundRevision===2?SECOND_RELEASE_SOUND:FIRST_RELEASE_SOUND)[id];
+  const value=saved?.sound,previous=(saved?.soundRevision===4?FOURTH_RELEASE_SOUND:saved?.soundRevision===3?THIRD_RELEASE_SOUND:saved?.soundRevision===2?SECOND_RELEASE_SOUND:FIRST_RELEASE_SOUND)[id];
   if(!value||typeof value!=='object'||Array.isArray(value)||!previous||saved.soundRevision>=SOUND_REVISION)return value;
   return Object.keys(previous).every(key=>value[key]===previous[key])&&Object.keys(value).every(key=>Object.hasOwn(previous,key))?{...defaults}:value;
 }
@@ -44,3 +44,6 @@ export const THIRD_RELEASE_SOUND={"carrier":{"waveform":"sine","attack":0.025,"d
 // Roses' original look upgrades only if every saved parameter is untouched.
 // User exports and independently adjusted looks retain their exact values.
 export const FOURTH_RELEASE_APPEARANCE={roses:{sceneBlur:0,sceneGrain:0,sceneGrainSize:1,petalColour:'#d82c75',leafColour:'#82aa8e',petalWidth:1,petalCurl:.7,petalLayers:4,bloomScale:1,bouquetSpread:1,leafSize:1,glyphStyle:'ascii',glyphDensity:1,glyphSize:1,exposure:1,wireContrast:.55,lineWeight:1,glow:.54,glowRadius:.55,sceneScale:1.1,revealDuration:10.5,idleMotion:.5,motionRate:1,response:.85,spray:.7,readoutContrast:.88,readoutSize:1.15}};
+
+// Crawl v31: only an entirely untouched colony adopts the five-species default.
+export const FOURTH_RELEASE_SOUND={crawl:{waveform:'triangle',attack:.014,decay:.3,sustain:.5,release:.7,cutoff:8500,resonance:.8,gain:.68,pan:0,ratio:1,index:0,detune:0,glide:.05,echo:.18,delayTime:.27,feedback:.22,speed:.65,activity:.6,curiosity:.65,population:3}};

@@ -63,7 +63,7 @@ async def run(base):
   async def expose_world(route):
    await route.fulfill(content_type='text/javascript',body=(ROOT/'instruments/crawl-world.js').read_text()+WORLD_INSTRUMENTATION)
   async def expose_renderer(route):
-   source=(ROOT/'instruments/crawl-renderer.js').read_text()+"\nconst __originalCrawlDraw=CrawlRenderer.prototype.draw;CrawlRenderer.prototype.draw=function(...args){window.__crawlRenderer=this;return __originalCrawlDraw.apply(this,args);};"
+   source=(ROOT/'instruments/crawl-renderer.js').read_text()+"\nconst __originalCrawlDraw=CrawlRenderer.prototype.draw;CrawlRenderer.prototype.draw=function(...args){window.__crawlRenderer=this;return __originalCrawlDraw.apply(this,args);};const __originalCrawlCreature=CrawlRenderer.prototype.creature;CrawlRenderer.prototype.creature=function(...args){(window.__crawlRenderedKinds ||= new Set()).add(args[1].kind);return __originalCrawlCreature.apply(this,args);};"
    await route.fulfill(content_type='text/javascript',body=source)
   await context.route('**/collection.js',expose_host);await context.route('**/instruments/crawl-world.js',expose_world)
   await context.route('**/instruments/crawl-renderer.js',expose_renderer)
@@ -99,6 +99,12 @@ async def run(base):
    assert not await page.evaluate('__crawlHost.state.playing')
    assert await page.locator('#arp').is_hidden()and await page.locator('#hold').is_hidden()
    report['checks']['newInstrumentAndCreatureOnlyPanel']=True
+   await page.wait_for_function('__crawlWorld.creatures.length===5&&window.__crawlRenderedKinds?.size===5')
+   species=await page.evaluate('__crawlWorld.creatures.map(c=>({kind:c.kind,segments:c.segments.length,legs:c.legs.length,claws:c.claws?.length||0,tail:c.tail?.length||0}))')
+   assert [s['kind']for s in species]==['centipede','spider','beetle','mantis','scorpion'],species
+   assert species[0]['segments']>5 and species[1]['legs']==8 and species[2]['legs']==6 and species[3]['legs']==4 and species[3]['claws']==2 and species[4]['legs']==8 and species[4]['claws']==2 and species[4]['tail']>2,species
+   assert await page.evaluate('__crawlHost.state.sound.population')==5
+   report['checks']['fiveDistinctPhysicalSpeciesRenderByDefault']=species
    # Freeze only the simulation clock to isolate input handling from naturally
    # concurrent creature actions. A finger is allowed to move a guide, not a dial.
    await page.evaluate('window.__freezeCrawl=true');before=await values()
@@ -186,6 +192,22 @@ async def run(base):
    # Freeze world time while comparing serialization. Resize may relayout the
    # board, but control identities and values must remain stable.
    await page.evaluate('window.__freezeCrawl=true')
+   await page.evaluate('window.__crawlPanelCacheBefore=__crawlRenderer.background.toDataURL()')
+   for key,value in [('chroma',.9),('colourFlow',.7),('anatomyDetail',.85)]:
+    await slider('appearance',key,value)
+    assert abs(await page.evaluate('key=>__crawlHost.state.appearance[key]',key)-value)<.001
+   await slider('sound','motionEnergy',.85);await close_panels();await page.wait_for_timeout(80)
+   assert await page.evaluate('__crawlRenderer.background.toDataURL()===__crawlPanelCacheBefore'),'Creature effects changed the cached panel bitmap'
+   report['checks']['creatureColourAndAnatomyControlsLeavePanelUndimmed']=True
+   colour_motion=await page.evaluate("""()=>{
+    const source=__crawlWorld,world={...source,panel:{...source.panel,controls:source.panel.controls.map(q=>({...q,changedAt:-Infinity}))},creatures:source.creatures.map(c=>({...c,state:'wander',reach:null,targetId:null,pulse:0})),guides:new Map()},canvas=document.createElement('canvas');
+    canvas.width=Math.round(world.panel.w);canvas.height=Math.round(world.panel.h);const c=canvas.getContext('2d'),renderer=new __crawlRenderer.constructor();
+    const render=(time,reducedMotion)=>{world.time=time;renderer.draw(c,world,__crawlHost.state.appearance,{},{time,reducedMotion,playing:false});return c.getImageData(0,0,canvas.width,canvas.height).data;};
+    const difference=(a,b)=>{let pixels=0;for(let i=0;i<a.length;i+=4)if(a[i]!==b[i]||a[i+1]!==b[i+1]||a[i+2]!==b[i+2])pixels++;return pixels;};
+    const reducedPixels=difference(render(2,true),render(14.7,true)),animatedPixels=difference(render(2,false),render(14.7,false));renderer.dispose();return{reducedPixels,animatedPixels};
+   }""")
+   assert colour_motion['reducedPixels']==0 and colour_motion['animatedPixels']>100,colour_motion
+   report['checks']['colourFlowAnimatesAndHonoursReducedMotion']=colour_motion
    preserved=await values();sizes=[]
    for width,height in [(844,390),(390,844),(1366,1024)]:
     await page.set_viewport_size({'width':width,'height':height});await page.wait_for_timeout(180)
@@ -201,6 +223,7 @@ async def run(base):
    async with page.expect_download()as download_info:await page.locator('#export-look').click()
    download=await download_info.value;download_path=await download.path();export=json.loads(Path(download_path).read_text())
    assert export['instrument']=='crawl'and export['format']=='duo-instrument'and export['data']==expected
+   assert export['sound']['motionEnergy']==.85 and export['appearance']['chroma']==.9 and export['appearance']['colourFlow']==.7 and export['appearance']['anatomyDetail']==.85
    await close_panels()
    await page.locator('.crawl-mode [data-mode="wander"]').click()
    await page.locator('#import-look').set_input_files({'name':'crawl-roundtrip.json','mimeType':'application/json','buffer':json.dumps(export).encode()})
@@ -213,6 +236,7 @@ async def run(base):
    await page.reload();await loaded();await page.wait_for_function('window.__crawlWorld?.panel.controls.length===56')
    assert await values()==preserved
    assert await page.evaluate('__crawlHost.state.appearance')==stored['appearance']
+   assert await page.evaluate('__crawlHost.state.sound')==stored['sound']
    assert await page.evaluate('__crawlHost.controller.getData().mode')==stored['data']['mode']
    report['checks']['reloadPreservesDesignerState']=True
    await page.locator('.crawl-mode [data-mode="wander"]').click()

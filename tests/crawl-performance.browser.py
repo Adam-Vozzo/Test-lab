@@ -64,7 +64,7 @@ async def run(base):
    assert report['profile']['mobile'],report['profile']
    await page.locator('#play').click();await page.wait_for_function('__crawlPerfHost.audio.snapshot().rms>.0004')
    for population in [3,5]:
-    if population!=3:
+    if await page.evaluate('__crawlPerfHost.state.sound.population')!=population:
      await page.locator('#sound-toggle').click();await page.locator('[data-tabs=sound] [data-group="Behaviour"]').click()
      await page.locator('#sound-population').evaluate('(e,n)=>{e.value=n;e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));}',population)
      await page.locator('[data-close=sound-popover]').click()
