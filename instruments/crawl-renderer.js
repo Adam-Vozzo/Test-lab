@@ -1,5 +1,5 @@
 import {TAU,clamp,lerp,rgba} from './kit.js';
-import {crawlControlRadius,crawlControlValue,crawlAnatomy} from './crawl-world.js';
+import {crawlControlRadius,crawlControlValue,crawlAnatomy,solveCrawlIK} from './crawl-world.js';
 
 const DEFAULTS={panelColour:'#080b0c',traceColour:'#56626b',legendColour:'#bfc7bf',creatureLime:'#d6ef62',creatureViolet:'#7273c8',creatureCoral:'#ef8466',creatureTeal:'#6dd7b4',circuitContrast:.5,panelContrast:.65,controlContrast:.95,legendContrast:.9,legWeight:1,jointSize:1,creatureGlow:.3,limbEnvelope:.2,scopeGain:.8,chroma:.7,colourFlow:.35,anatomyDetail:.75,audioMotion:.65,audioColour:.8,audioGlow:.45};
 const NAMES={pitch:'PITCH',range:'RANGE',shape:'SHAPE',tone:'CUTOFF',resonance:'RESO',decay:'DECAY',detune:'DETUNE',gate:'GATE',division:'DIV',accent:'ACCENT'};
@@ -20,8 +20,37 @@ const controlSize=crawlControlRadius;
 const formatValue=(q,patch,note)=>{const v=q.value,o=patch?.options;if(!o)return v.toFixed(2);if(q.key==='pitch')return note||String(patch.midi);if(q.key==='range')return v<.5?'LOW':'HIGH';if(q.key==='tone')return o.cutoff>=1000?(o.cutoff/1000).toFixed(1)+'k':Math.round(o.cutoff)+'Hz';if(q.key==='resonance')return o.resonance.toFixed(1)+' Q';if(q.key==='decay')return o.decay.toFixed(2)+'s';if(q.key==='detune')return Math.round(o.detune)+'ct';if(q.key==='gate')return Math.round(patch.gate*100)+'%';if(q.key==='division')return({1:'1/16',2:'1/8',3:'3/16',4:'1/4',6:'3/8',8:'1/2'})[patch.division]||String(patch.division);if(q.key==='accent')return Math.round(o.velocity*100)+'%';if(q.key==='shape')return q.lane===0?({sine:'SIN',triangle:'TRI',sawtooth:'SAW',square:'PULSE',wavetable:'WT'})[o.waveform]||'OSC':q.lane===1?'FM '+Number(o.ratio).toFixed(1):q.lane===2?'WT '+Math.round(o.tablePosition*100):'SB '+Math.round((o.sideband??v)*100);return v.toFixed(2);};
 
 /** The panel and the creatures are projected from the same CSS-pixel world.
- * No values or movement are changed by the renderer. Only the static drafting
+ * Simulation state is never changed by the renderer. Only the static drafting
  * layer is cached; switches, meters, joints and acquisition traces remain live. */
+// A visual spine rides above the walking skeleton. Re-solve the legs to the
+// same planted feet; the head/operating hand remain in world-space contact.
+export function crawlReactivePose(creature,amount,time,reduced=false,bounds=null){
+ if(reduced||!amount||!creature.audio?.level)return creature;
+ const u=creature.scale||1,source=creature.segments,anatomy=crawlAnatomy(creature.kind),offsets=source.map((s,i)=>{
+  if(!i)return{x:0,y:0};
+  const energy=Math.sqrt(clamp(creature.audio.segments?.[i]??creature.audio.level));
+  const wave=Math.sin(time*2.8+creature.audio.mid*.8+i*.77+creature.index)*energy*amount;
+  let distance=wave*(creature.kind==='centipede'?11:14)*u;
+  const legs=creature.legs.filter(l=>l.segment===i),nx=-Math.sin(s.angle),ny=Math.cos(s.angle);
+  // Retain two-bone reach, including partially extended legs during a stride.
+  for(let n=0;n<12;n++){
+   if(legs.every(l=>{const d=Math.hypot(l.foot.x-l.hip.x-nx*distance,l.foot.y-l.hip.y-ny*distance);return d<l.upper+l.lower-.01&&d>Math.abs(l.upper-l.lower)+.01;}))break;
+   distance*=.65;
+  }
+  if(!legs.every(l=>{const d=Math.hypot(l.foot.x-l.hip.x-nx*distance,l.foot.y-l.hip.y-ny*distance);return d<l.upper+l.lower-.0001&&d>Math.abs(l.upper-l.lower)+.0001;}))distance=0;
+  if(bounds){
+   const points=[s,...(i===source.length-1?creature.tail||[]:[])];
+   while(Math.abs(distance)>.001&&points.some(p=>p.x+nx*distance<8*u||p.x+nx*distance>bounds.w-8*u||p.y+ny*distance<8*u||p.y+ny*distance>bounds.h-8*u))distance*=.5;
+  }
+  return{x:nx*distance,y:ny*distance};
+ });
+ const shift=(p,d)=>({...p,x:p.x+d.x,y:p.y+d.y});
+ const segments=source.map((s,i)=>shift(s,offsets[i]));
+ const legs=creature.legs.map(l=>{const hip=shift(l.hip,offsets[l.segment]||offsets[0]);return{...l,hip,knee:solveCrawlIK(hip,l.foot,l.upper,l.lower,l.side*anatomy.bend)};});
+ const tail=(creature.tail||[]).map(p=>shift(p,offsets.at(-1)));
+ return{...creature,segments,legs,tail};
+}
+
 export class CrawlRenderer{
  constructor(){this.background=null;this.key='';this.lastTime=0;}
  palette(a){return{...DEFAULTS,...a};}
@@ -134,17 +163,17 @@ export class CrawlRenderer{
   // Spatial phase remains attached to anatomy. Audio response is a separate
   // measured signal, so holding the ambient colour pattern still cannot mute it.
   const phase=position*5.1+num(creature.index)*.73+side*.42+flow*(num(creature.angle)*.68+num(creature.travel)*.004)+Math.sin(time*.6*flow+num(creature.phase))*.62,wave=.5+.5*Math.sin(phase),opposite=.5+.5*Math.sin(phase+2.2),accents=[a.creatureTeal,a.creatureCoral,a.creatureViolet,a.creatureLime],other=accents[(num(creature.index)+1)%4],first=mixComponents(base[0],other,chroma*(.10+wave*.61)),second=mixComponents(base[1],accents[(num(creature.index)+3)%4],chroma*(.12+opposite*.72)),audio=this.audioAt(creature,a,position),amount=clamp(a.audioColour??.8),direction=[1,-.9,.78,-1.05,1.1][num(creature.index)%5],soft=audio.reduced?.46:1;
-  const hue=amount*soft*direction*((audio.bass*.20-audio.treble*.17+audio.mid*.035)*(.7+audio.local*.3)+audio.attack*.065),strength=amount*(audio.energy*.70+audio.attack*.25);
+  const hue=amount*soft*direction*((audio.bass*.38-audio.treble*.32+audio.mid*.12)+audio.attack*.12),strength=amount*Math.sqrt(clamp(audio.energy+audio.attack*.25));
   for(const [index,components]of[first,second].entries()){
    components[0]=(components[0]+hue*(index?1.15:.82)+1)%1;
    components[1]=lerp(components[1],Math.max(components[1],.93),clamp(strength*.65));
-   components[2]+=Math.min(Math.max(0,.79-components[2]),strength*(index?.15:.115));
+   components[2]+=Math.min(Math.max(0,.79-components[2]),strength*(index?.22:.18));
   }
   const glow=clamp(a.audioGlow??.45)*clamp(audio.energy*.8+audio.attack*.35),highlight=hexColour([first[0],Math.min(.78,first[1]),first[2]+Math.min(.23,Math.max(0,.89-first[2]))]);
-  return{primary:hexColour(first),secondary:hexColour(second),highlight,glow,energy:audio.energy};
+  return{primary:hexColour(first),secondary:hexColour(second),highlight,glow,energy:audio.energy,fill:clamp(amount*Math.sqrt(audio.energy)*1.8)*(audio.reduced?.2:1)};
  }
  bodySegment(c,s,index,creature,u,primary,secondary,a,ink){
-  const response=this.audioAt(creature,a,index/(creature.segments.length||1)),lift=response.reduced?0:response.energy*clamp(a.audioMotion??.65),anatomy=crawlAnatomy(creature.kind),plate=anatomy.plates[index]||anatomy.plates.at(-1),length=plate.length*u,width=plate.width*u*(1+num(creature.breathe)*Math.sin(index*.73+.8)+lift*(creature.kind==='beetle'?.18:.24)),halfL=length*.5,halfW=width*.5,detail=clamp(a.anatomyDetail??.75),kind=creature.kind;
+  const response=this.audioAt(creature,a,index/(creature.segments.length||1)),lift=response.reduced?0:Math.sqrt(response.energy)*clamp(a.audioMotion??.65),anatomy=crawlAnatomy(creature.kind),plate=anatomy.plates[index]||anatomy.plates.at(-1),length=plate.length*u,width=plate.width*u*(1+num(creature.breathe)*Math.sin(index*.73+.8)+lift*(creature.kind==='beetle'?.8:1.25)),halfL=length*.5,halfW=width*.5,detail=clamp(a.anatomyDetail??.75),kind=creature.kind;
   c.save();c.translate(s.x,s.y);c.rotate(num(s.angle,creature.angle)+num(creature.bodySway)*Math.sin(index*.7+.6)*(kind==='mantis'?.7:.3));
   if(kind==='beetle'){
    // Separate faceted elytra meet at a raised longitudinal seam; the shell is
@@ -167,11 +196,16 @@ export class CrawlRenderer{
   }else{
    c.fillStyle=rgba(a.panelColour,.74);c.fillRect(-halfL,-halfW,length,width);
    rect(c,-halfL,-halfW,length,width,rgba(secondary,.90),.85);
-   if(detail>0){rect(c,-halfL-2*u,-halfW-2*u,length+4*u,width+4*u,rgba(secondary,detail*.58),.65);const offset=(2.8+lift*3)*u;stroke(c,[[-halfL,-halfW],[-halfL+offset,-halfW-offset],[halfL+offset,-halfW-offset],[halfL,-halfW]],rgba(secondary,detail*.42),.55);stroke(c,[[halfL,-halfW],[halfL+offset,-halfW-offset],[halfL+offset,halfW-offset],[halfL,halfW]],rgba(secondary,detail*.42),.55);}
+   if(detail>0){rect(c,-halfL-2*u,-halfW-2*u,length+4*u,width+4*u,rgba(secondary,detail*.58),.65);const offset=(2.8+lift*10)*u;stroke(c,[[-halfL,-halfW],[-halfL+offset,-halfW-offset],[halfL+offset,-halfW-offset],[halfL,-halfW]],rgba(secondary,detail*.42),.55);stroke(c,[[halfL,-halfW],[halfL+offset,-halfW-offset],[halfL+offset,halfW-offset],[halfL,halfW]],rgba(secondary,detail*.42),.55);}
    const inset=Math.max(1.9*u,Math.min(width*.23,3.2*u));
    if(index%4===1||kind==='spider'){c.fillStyle=rgba(primary,index%3===0?.52:.16);c.fillRect(-halfL+inset,-halfW+inset,length-inset*2,width-inset*2);}
    stroke(c,[[halfL-inset,-halfW+inset],[-halfL+inset,-halfW+inset],[-halfL+inset,halfW-inset],[halfL-inset,halfW-inset]],rgba(primary,.98),Math.max(.8,1.25*u));
    if(index%2===0)stroke(c,[[halfL-inset,halfW-inset],[halfL-inset,halfW-inset*2.1]],rgba(primary,.68),.8*u);
+  }
+  if(ink.fill>.001){
+   const facet=kind==='mantis'&&index===0?[[halfL*.55,0],[-halfL*.65,-halfW*.65],[-halfL*.65,halfW*.65]]:[[halfL*.65,-halfW*.62],[-halfL*.7,-halfW*.62],[-halfL*.7,halfW*.62],[halfL*.65,halfW*.62]];
+   polygon(c,facet,rgba(primary,ink.fill),rgba(secondary,ink.fill*.6),.6*u);
+   stroke(c,[[0,-halfW*.62],[0,halfW*.62]],rgba(a.panelColour,.6),Math.max(.8,u));
   }
   const pulse=clamp(creature.pulse||0);if(pulse>.1){stroke(c,[[-halfL*.45,0],[halfL*.45,0]],rgba(primary,pulse*.65),Math.max(.8,u));}
   audioWire(c,[[-halfL*.62,0],[halfL*.63,0]],ink,u,Math.max(.8,u));
@@ -202,6 +236,7 @@ export class CrawlRenderer{
   }
  }
  creature(c,creature,a,u,time,selected){
+  creature=crawlReactivePose(creature,clamp(a.audioMotion??.65),time,a._reduceAudioMotion,this.viewport);
   const legs=creature.legs||[],weight=(a.legWeight??1)*Math.max(.65,u*.86),joint=Math.max(.7,u*(a.jointSize??1));
   c.save();c.lineCap='round';c.lineJoin='round';
   for(const leg of legs){const hip=leg.hip,knee=leg.knee,foot=leg.foot;if(!hip||!knee||!foot)continue;const ink=this.inkAt(creature,a,num(leg.segment)/(creature.segments.length||1),leg.side,time),dx=foot.x-hip.x,dy=foot.y-hip.y,d=Math.hypot(dx,dy)||1,off=5*u,side=leg.side||1,p1={x:knee.x-dy/d*off*side,y:knee.y+dx/d*off*side},p2={x:foot.x-dy/d*off*side,y:foot.y+dx/d*off*side};stroke(c,[hip,p1,p2,foot],rgba(ink.secondary,(a.limbEnvelope??.2)*.6),.55);}
@@ -233,7 +268,7 @@ export class CrawlRenderer{
  }
  draw(c,world,appearance={},snapshot={},meta={}){
   const panel=world.panel;if(!panel)return;const a=this.palette(appearance),{w,h,unit:u}=panel,time=num(world.time,meta.time),dpr=Math.max(.25,num(c.getTransform?.().a,1));
-  this.staticLayer(panel,a,dpr);c.clearRect(0,0,w,h);c.drawImage(this.background,0,0,w,h);this.lastTime=time;
+  this.viewport={w,h};this.staticLayer(panel,a,dpr);c.clearRect(0,0,w,h);c.drawImage(this.background,0,0,w,h);this.lastTime=time;
   for(const control of panel.controls)this.control(c,control,a,u,time,meta.playing?meta.step:-1,meta.patches?.[control.lane],meta.notes?.[control.lane]);
   this.meter(c,panel,a,snapshot,meta);this.response(c,panel,a,meta);this.guides(c,world,a,u,time);
   if(Array.isArray(meta.notes))for(const z of panel.zones)text(c,meta.notes[z.lane]||'',z.x+z.w*.72,z.y+7*u,Math.max(7.2,8*u),rgba(a.legendColour,a.legendContrast*.64),'right');

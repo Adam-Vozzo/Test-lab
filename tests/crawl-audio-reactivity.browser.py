@@ -72,7 +72,8 @@ PIXELS=r'''response => {
    if(ink.primary.toLowerCase()!==anchor||ink.secondary.toLowerCase()!==anchor)brightPaletteViolations.push({anchor,active,audioColour,kind:c.kind,primary:ink.primary,secondary:ink.secondary});
   }
  }
- renderer.dispose();return{disabled,colour,motion,reducedMotion,reducedColour,brightPaletteViolations,silentImage,measuredImage};
+ render(true,{audioMotion:1,audioColour:1,audioGlow:1});const maximumImage=canvas.toDataURL();
+ renderer.dispose();return{maximumImage,disabled,colour,motion,reducedMotion,reducedColour,brightPaletteViolations,silentImage,measuredImage};
 }'''
 
 class Handler(SimpleHTTPRequestHandler):
@@ -121,7 +122,7 @@ async def run(base):
      assert creature['segments']and all(0<=v<=1 for v in creature['segments']),creature
    report['checks']['realTouchPCMDrivesResponseBeforePlay']={'rms':pcm['rms'],'peak':pcm['peak'],'responsiveFrames':len(responsive),'peakResponse':peak}
    pixels=await page.evaluate(PIXELS,peak['response'])
-   for key,name in [('silentImage','fixed-pose-silent.png'),('measuredImage','fixed-pose-measured.png')]:
+   for key,name in [('silentImage','fixed-pose-silent.png'),('measuredImage','fixed-pose-measured.png'),('maximumImage','fixed-pose-maximum.png')]:
     (OUT/name).write_bytes(base64.b64decode(pixels.pop(key).split(',',1)[1]))
    assert pixels['disabled']==0 and pixels['colour']>100 and pixels['motion']>100 and pixels['reducedMotion']==0 and pixels['reducedColour']>100,pixels
    assert pixels['brightPaletteViolations']==[],pixels['brightPaletteViolations']
