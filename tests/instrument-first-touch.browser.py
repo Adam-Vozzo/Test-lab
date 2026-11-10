@@ -12,7 +12,7 @@ from http.server import ThreadingHTTPServer,SimpleHTTPRequestHandler
 from playwright.async_api import async_playwright
 ROOT=Path(__file__).resolve().parents[1]
 OUT=ROOT/'qa'/'instrument-first-touch'
-POINTS={'relay':(.20,.42),'cellular':(.22,.44),'census':(.24,.32),'swarm':(.75,.42),'graticule':(.25,.50),'waveform':(.75,.30),'geo':(.24,.32),'hand':(.05,.90),'structure':(.35,.59),'granular':(.50,.36),'terrain':(.25,.32),'phase-volume':(.25,.50),'milkdrop':(.35,.52),'receiver':(.50,.50),'roses':(.50,.33),'crawl':(.50,.45)}
+POINTS={'relay':(.20,.42),'cellular':(.22,.44),'census':(.24,.32),'swarm':(.75,.42),'graticule':(.25,.50),'waveform':(.75,.30),'geo':(.24,.32),'hand':(.05,.90),'structure':(.35,.59),'granular':(.50,.36),'terrain':(.25,.32),'phase-volume':(.25,.50),'milkdrop':(.35,.52),'receiver':(.50,.50),'roses':(.50,.33),'crawl':(.50,.45),'rotor':(.25,.35),'vesicle':(.25,.46)}
 PREPARE=r'''async ({kind,policy})=>{
  window.kind=kind;window.policy=policy;window.engine=__qa.audio;window.lastNative='';window.allowEnding=false;window.voices=[];window.nativeEvents=[];window.calls=[];
  const allowed=()=>policy==='fresh'||(policy==='end-only'||allowEnding)&&['pointerup','touchend','click'].includes(lastNative);

@@ -1,12 +1,13 @@
 import {clamp,createSurface,bindPointers,label,line,rgba} from './kit.js';
+import {createRoseGarden} from './roses-garden.js';
 import {RosesRenderer,ROSE_CENTRES} from './roses-renderer.js';
 import {signalRenderProfile,renderPixelRatio,createFrameGate} from '../render-performance.js';
 const range=(key,label,min,max,step,section,description,unit='')=>({key,label,min,max,step,section,description,unit});
 export const definition={
- id:'roses',name:'Roses',layoutMode:'single',commonSoundControls:false,keyboardNotes:true,
+ id:'roses',name:'Roses',commonSoundControls:false,keyboardNotes:true,
  theme:{bg:'#020303',fg:'#bbc7bd',accent:'#df4c8b',muted:'#75857d'},
  defaultSound:{waveform:'roses',roseBody:.32,roseGlass:.72,roseDecay:.56,roseWidth:.18,roseMotion:.22,attack:.02,decay:.35,sustain:.72,release:1.6,gain:.72,cutoff:12000,resonance:.5,echo:.2,delayTime:.39,feedback:.28,glide:.06,detune:0,pan:0,gate:.55,scanRate:'2',bedLevel:.24},
- defaultAppearance:{petalColour:'#d82c75',leafColour:'#82aa8e',petalWidth:1.25,petalCurl:.55,petalLayers:5,bloomScale:1.1,bouquetSpread:1.05,leafSize:.9,glyphStyle:'ascii',glyphDensity:1.4,glyphSize:1.45,exposure:1.1,wireContrast:.4,lineWeight:.5,glow:.85,glowRadius:.6,saturation:1.3,highlightGain:1.25,sceneScale:1.15,revealDuration:6,idleMotion:1.5,idleRotation:.035,motionRate:.8,response:.2,spray:1,readoutContrast:.88,readoutSize:1},
+ defaultAppearance:{flowerFraming:1.5,growthDensity:.9,growthMotion:.45,pixelScale:2,mossColour:'#548b86',petalColour:'#d82c75',leafColour:'#82aa8e',petalWidth:1.25,petalCurl:.55,petalLayers:5,bloomScale:1.1,bouquetSpread:1.05,leafSize:.9,glyphStyle:'ascii',glyphDensity:1.4,glyphSize:1.45,exposure:1.1,wireContrast:.4,lineWeight:.5,glow:.85,glowRadius:.6,saturation:1.3,highlightGain:1.25,sceneScale:1.15,revealDuration:6,idleMotion:1.5,idleRotation:.035,motionRate:.8,response:.2,spray:1,readoutContrast:.88,readoutSize:1},
  soundControls:[
   range('roseBody','Body level',0,1,.01,'Rose voice','Level of the warm sustained fundamental beneath each petal chime.'),
   range('roseGlass','Glass level',0,1,.01,'Rose voice','Level of the three high, inharmonic partials struck by each petal.'),
@@ -26,6 +27,10 @@ export const definition={
   {key:'scanRate',label:'Petal interval',kind:'select',options:[['1','1/16'],['2','1/8'],['4','1/4']],section:'Sequence',description:'Musical spacing between the petals sounded by Play.'}
  ],
  appearanceControls:[
+  {key:'mossColour',label:'Growth colour',kind:'color',section:'Interface growth',description:'Colour of the pixel fern stems and perimeter foliage.'},
+  range('growthDensity','Growth density',0,1.5,.05,'Interface growth','Number of pixel fern branches around both panels. Zero clears the perimeter.'),
+  range('growthMotion','Growth motion',0,1,.05,'Interface growth','Speed of gentle foliage movement. Does not alter the flower motion.'),
+  range('pixelScale','Foliage pixel size',1,4,1,'Interface growth','Pixel size of the interface foliage; the rose character size is controlled separately.','px'),
   {key:'petalColour',label:'Petal colour',kind:'color',section:'Petals',description:'Base colour of the rose glyphs and petal contours.'},
   range('petalWidth','Petal width',.55,1.5,.05,'Petals','Width of each curved petal fan in the 3D flower.'),
   range('petalCurl','Petal curl',0,1.5,.05,'Petals','Lift and curl of each petal edge in 3D.'),
@@ -44,6 +49,7 @@ export const definition={
   range('highlightGain','Highlight gain',.5,1.8,.05,'Light','Brightness of the lit petal folds and the light they emit into the bloom.','×'),
   range('glow','Petal bloom',0,1,.05,'Light','Local light surrounding each luminous glyph; zero removes the halo.'),
   range('glowRadius','Bloom radius',0,1,.05,'Light','Radius of the small glyph halos. Does not blur the underlying characters.'),
+  range('flowerFraming','Panel framing',.8,2,.05,'View','Magnification of the flower within its split panel, independent of saved camera zoom.','×'),
   range('sceneScale','Bouquet scale',.65,1.15,.05,'View','Size of the complete bouquet within the canvas.','×'),
   range('revealDuration','Entry duration',0,12,.5,'Motion','Time to build the stem, branches, leaves and opening flowers. Zero reveals the complete model.','s'),
   range('idleMotion','Ambient motion',0,1.5,.05,'Motion','Independent slow tilting and swaying of the flower heads around their stems.'),
@@ -59,11 +65,17 @@ export const rosePetalDegree=(petal,flower=0)=>petal>=220?2+(petal-220)%5:8+((pe
 const ZOOM_MIN=.65,ZOOM_MAX=3.2;
 
 export function mount(host,api){
- const surface=createSurface(host,{label:'Roses. Touch individual petals for chimes; leaves and stems play lower notes. Drag between petals to play different notes. Drag empty space to orbit; pinch anywhere or use the mouse wheel to zoom. Shift-drag to pan a close view.'}),c=surface.ctx,profile=signalRenderProfile(),gate=createFrameGate(profile.mobile?60:90),renderer=new RosesRenderer(surface.canvas,{mobile:profile.mobile});
+ const garden=createRoseGarden(host,api,playFlower);
+ const surface=createSurface(garden.flower,{label:'Roses. Touch individual petals for chimes; leaves and stems play lower notes. Drag between petals to play different notes. Drag empty space to orbit; pinch anywhere or use the mouse wheel to zoom. Shift-drag to pan a close view.'}),c=surface.ctx,profile=signalRenderProfile(),gate=createFrameGate(profile.mobile?60:90),renderer=new RosesRenderer(surface.canvas,{mobile:profile.mobile});
  surface.resize=()=>{const r=surface.canvas.getBoundingClientRect(),w=Math.max(1,r.width),h=Math.max(1,r.height),d=renderPixelRatio(w,h,window.devicePixelRatio||1,{maxDpr:1.5,maxPixels:profile.mobile?1000000:1700000});if(surface.canvas.width!==Math.round(w*d)||surface.canvas.height!==Math.round(h*d)||surface.dpr!==d){surface.canvas.width=Math.max(1,Math.round(w*d));surface.canvas.height=Math.max(1,Math.round(h*d));c.setTransform(d,0,0,d,0,0);}Object.assign(surface,{width:w,height:h,dpr:d});renderer.resize(w,h,d);return surface;};surface.resize();
  const contacts=new Map(),provenance=new Map(),seenOnsets=new Set(),energy=new Float32Array(256);let camera={yaw:.19433333333333686,pitch:6.55833333333334,zoom:.7590744829719918,offsetX:0,offsetY:0},time=0,startTime=null,lastTime=0,scanCursor=0,barCount=0,transport=false,destroyed=false,lastNote=api.quantize(9),lastStatus='',pinch=null,focus=null,cursor=null,revealProgress=0,idleYaw=0,idleSpeed=0,lastInteraction=-Infinity;
  const appearance=()=>({...definition.defaultAppearance,...api.state.appearance});
  const sourceId=(pointer,petal)=>'roses-touch-'+pointer+'-'+petal;
+ function playFlower(flower,id,on,cancel=false){
+  if(!on){(cancel?api.noteCancel:api.noteOff)(id);return;}
+  const candidates=renderer.petals.filter(p=>p.flower===flower),petal=candidates[Math.floor(candidates.length*.5)];if(!petal)return;
+  provenance.set(id,{petal:petal.id,flower});lastNote=api.quantize(rosePetalDegree(petal.id,flower));focus={id:petal.id,time};energy[petal.id]=.9;api.noteOn(id,lastNote,{velocity:.7,pan:(flower/4-.5)*.7});
+ }
  function emit(id,amount=1){if(!api.reducedMotion)renderer.emitPetal(id,time,amount);}
  function soundPetal(p,q,hit,first=false){
   if(!hit)return;const id=sourceId(p.id,hit.id);if(q.source&&q.source!==id)api.noteOff(q.source);
@@ -120,7 +132,7 @@ export function mount(host,api){
  }
 
  return{
-  frame(t,dt){if(destroyed||!gate.due(t*1000))return;time=t;if(startTime===null)startTime=t;dt=Math.min(.1,lastTime?t-lastTime:dt);lastTime=t;surface.resize();const v=appearance(),snap=api.audio.snapshot();
+  frame(t,dt){if(destroyed||!gate.due(t*1000))return;time=t;if(startTime===null)startTime=t;dt=Math.min(.1,lastTime?t-lastTime:dt);lastTime=t;const v=appearance(),snap=api.audio.snapshot();garden.frame(v,t,snap);surface.resize();
    for(let i=0;i<energy.length;i++)energy[i]*=Math.exp(-dt*3.2);
    const audible=new Set();for(const voice of snap.voices){const p=provenance.get(voice.id),onset=voice.id+':'+voice.started;audible.add(onset);if(p){energy[p.petal]=Math.max(energy[p.petal],clamp(voice.level*2));if(!seenOnsets.has(onset)&&voice.level>.002){if(!api.reducedMotion)renderer.strike(p.petal,time,.75);emit(p.petal);seenOnsets.add(onset);}}}for(const onset of seenOnsets)if(!audible.has(onset))seenOnsets.delete(onset);
    revealProgress=Math.max(revealProgress,api.reducedMotion||v.revealDuration<=0?1:clamp((t-startTime)/v.revealDuration));
@@ -129,15 +141,15 @@ export function mount(host,api){
    if(api.reducedMotion){anchorView();}
    else if(contacts.size||t-lastInteraction<2||revealProgress<1){idleSpeed=0;}
    else{const target=(v.idleRotation??.035)*(v.motionRate??1);idleSpeed+=(target-idleSpeed)*(1-Math.exp(-dt*1.4));idleYaw+=idleSpeed*dt;}
-   renderer.draw(v,t,{...camera,yaw:camera.yaw+idleYaw},energy,revealProgress,api.reducedMotion);
+   renderer.draw({...v,sceneScale:v.sceneScale*v.flowerFraming},t,{...camera,yaw:camera.yaw+idleYaw},energy,revealProgress,api.reducedMotion);
    for(const q of contacts.values())if(q.kind==='petal'&&t-(q.lastShed??0)>.32){emit(q.petal,.35);q.lastShed=t;}
    drawAnnotations(v,snap);const latest=snap.voices.filter(q=>q.level>.01).sort((a,b)=>b.started-a.started)[0];if(latest)lastNote=latest.midi;const status=api.noteName(lastNote)+' · '+snap.voices.filter(q=>q.gate).length+' voices';if(lastStatus!==status){api.setStatus(status);lastStatus=status;}
    for(const id of provenance.keys())if(!snap.voices.some(q=>q.id===id)&&!api.audio.sources?.has(id)&&![...contacts.values()].some(q=>q.source===id))provenance.delete(id);
   },
-  onStep(step,when){const interval=Number(api.state.sound.scanRate)||2;if(step%interval)return;const index=scanCursor++%5,candidates=renderer.petals.filter(p=>p.flower===index),entry=candidates[(scanCursor*3)%Math.max(1,candidates.length)];if(!entry)return;const petal=entry.id,flower=entry.flower,id='roses-seq-'+petal,midi=api.quantize(rosePetalDegree(petal,flower));provenance.set(id,{petal,flower});api.audio.pulse(id,midi,{...api.state.sound,velocity:.66,pan:ROSE_CENTRES[flower][0]*.4},when,60/api.state.bpm/4*interval*api.state.sound.gate);if(step===0){const chord=[[3,5,7],[1,5,8],[0,4,7,10]][Math.floor(barCount++/2)%3];if(api.state.sound.bedLevel>0)for(const degree of chord)api.audio.pulse('roses-bed-'+degree,api.quantize(degree),{...api.state.sound,roseLayer:1,roseBody:.9,attack:.8,release:2,gain:api.state.sound.bedLevel,velocity:.65},when,60/api.state.bpm*3.5);}},
+  onStep(step,when){const interval=Number(api.state.sound.scanRate)||2;if(step%interval)return;const sequenceIndex=scanCursor++%16,index=garden.pattern[sequenceIndex];garden.scheduleStep(sequenceIndex,when);if(index<0)return;const candidates=renderer.petals.filter(p=>p.flower===index),entry=candidates[(scanCursor*3)%Math.max(1,candidates.length)];if(!entry)return;const petal=entry.id,flower=entry.flower,id='roses-seq-'+petal,midi=api.quantize(rosePetalDegree(petal,flower));provenance.set(id,{petal,flower});api.audio.pulse(id,midi,{...api.state.sound,velocity:.66,pan:ROSE_CENTRES[flower][0]*.4},when,60/api.state.bpm/4*interval*api.state.sound.gate);if(step===0){const chord=[[3,5,7],[1,5,8],[0,4,7,10]][Math.floor(barCount++/2)%3];if(api.state.sound.bedLevel>0)for(const degree of chord)api.audio.pulse('roses-bed-'+degree,api.quantize(degree),{...api.state.sound,roseLayer:1,roseBody:.9,attack:.8,release:2,gain:api.state.sound.bedLevel,velocity:.65},when,60/api.state.bpm*3.5);}},
   setPlaying(playing){if(playing&&!transport){scanCursor=0;barCount=0;}transport=playing;},
-  update(){},cancel(){for(const q of contacts.values())if(q.source)(api.noteCancel||api.noteOff)(q.source);for(const id of provenance.keys())(api.noteCancel||api.noteOff)(id);contacts.clear();pinch=null;},
-  getData(){return{camera:{...camera}};},setData(data){if(data?.camera){idleYaw=0;idleSpeed=0;lastInteraction=time;const p=data.camera;if(Number.isFinite(p.yaw))camera.yaw=p.yaw;if(Number.isFinite(p.pitch))camera.pitch=p.pitch;if(Number.isFinite(p.zoom))camera.zoom=clamp(p.zoom,ZOOM_MIN,ZOOM_MAX);camera.offsetX=Number.isFinite(p.offsetX)?p.offsetX:0;camera.offsetY=Number.isFinite(p.offsetY)?p.offsetY:0;constrainView();}},
-  destroy(){destroyed=true;unbind();surface.canvas.removeEventListener('wheel',wheel);surface.canvas.removeEventListener('pointermove',hover);for(const id of provenance.keys())(api.noteCancel||api.noteOff)(id);renderer.dispose();surface.destroy();}
+  update(){},cancel(){garden.cancel();for(const q of contacts.values())if(q.source)(api.noteCancel||api.noteOff)(q.source);for(const id of provenance.keys())(api.noteCancel||api.noteOff)(id);contacts.clear();pinch=null;},
+  getData(){return{camera:{...camera},pattern: garden.pattern.slice()};},setData(data){garden.setPattern(data?.pattern);if(data?.camera){idleYaw=0;idleSpeed=0;lastInteraction=time;const p=data.camera;if(Number.isFinite(p.yaw))camera.yaw=p.yaw;if(Number.isFinite(p.pitch))camera.pitch=p.pitch;if(Number.isFinite(p.zoom))camera.zoom=clamp(p.zoom,ZOOM_MIN,ZOOM_MAX);camera.offsetX=Number.isFinite(p.offsetX)?p.offsetX:0;camera.offsetY=Number.isFinite(p.offsetY)?p.offsetY:0;constrainView();}},
+  destroy(){destroyed=true;garden.destroy();unbind();surface.canvas.removeEventListener('wheel',wheel);surface.canvas.removeEventListener('pointermove',hover);for(const id of provenance.keys())(api.noteCancel||api.noteOff)(id);renderer.dispose();surface.destroy();}
  };
 }
