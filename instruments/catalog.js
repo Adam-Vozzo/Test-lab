@@ -15,6 +15,7 @@ export const INSTRUMENTS=[
   {id:'milkdrop',name:'MilkDrop',description:'Audio-reactive feedback · touch synthesis',colors:['#62efd9','#c180ff'],load:()=>import('./milkdrop.js')},
   {id:'receiver',name:'Receiver',description:'Signal tracking · detuned synthesis',colors:['#bccac8','#31444f'],load:()=>import('./receiver.js')},
   {id:'roses',name:'Roses',description:'ASCII petals · glass chimes',colors:['#e94c90','#a5c6a1'],load:()=>import('./roses.js')},
+  {id:'crawl',name:'Crawl',description:'Autonomous creatures · living circuitry',colors:['#d6ef62','#7273c8'],load:()=>import('./crawl.js')},
 ];
 
 // Old home-screen links select the replacement without importing its retired
