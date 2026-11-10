@@ -73,7 +73,17 @@ PIXELS=r'''response => {
   }
  }
  render(true,{audioMotion:1,audioColour:1,audioGlow:1});const maximumImage=canvas.toDataURL();
- renderer.dispose();return{maximumImage,disabled,colour,motion,reducedMotion,reducedColour,brightPaletteViolations,silentImage,measuredImage};
+ const sheet=document.createElement('canvas');sheet.width=900;sheet.height=1250;const sc=sheet.getContext('2d');sc.fillStyle='#080b0c';sc.fillRect(0,0,900,1250);
+ for(const [i,creature]of source.creatures.entries()){
+  const points=[...creature.segments,...creature.legs.flatMap(l=>[l.hip,l.knee,l.foot]),...(creature.tail||[]),...(creature.claws||[]).flatMap(c=>[c.base,c.knee,c.tip])],xs=points.map(p=>p.x),ys=points.map(p=>p.y),cx=(Math.min(...xs)+Math.max(...xs))/2,cy=(Math.min(...ys)+Math.max(...ys))/2,scale=Math.min(1.3,245/(Math.max(...xs)-Math.min(...xs)+30),195/(Math.max(...ys)-Math.min(...ys)+30));
+  for(let col=0;col<3;col++){
+   sc.save();sc.translate(col*300+150,i*250+140);sc.scale(scale,scale);sc.translate(-cx,-cy);
+   renderer.creature(sc,{...creature,audio:col?response[i]:{level:0,segments:[]}},renderer.palette({...appearance,audioMotion:col===2?1:.65,audioColour:col===2?1:.8,audioGlow:col===2?1:.45}),creature.scale,10,null);sc.restore();
+   sc.fillStyle='#bfc7bf';sc.font='12px monospace';sc.fillText(creature.kind+' / '+['rest','default','maximum'][col],col*300+18,i*250+22);
+  }
+ }
+ const speciesImage=sheet.toDataURL();
+ renderer.dispose();return{speciesImage,maximumImage,disabled,colour,motion,reducedMotion,reducedColour,brightPaletteViolations,silentImage,measuredImage};
 }'''
 
 class Handler(SimpleHTTPRequestHandler):
@@ -122,7 +132,7 @@ async def run(base):
      assert creature['segments']and all(0<=v<=1 for v in creature['segments']),creature
    report['checks']['realTouchPCMDrivesResponseBeforePlay']={'rms':pcm['rms'],'peak':pcm['peak'],'responsiveFrames':len(responsive),'peakResponse':peak}
    pixels=await page.evaluate(PIXELS,peak['response'])
-   for key,name in [('silentImage','fixed-pose-silent.png'),('measuredImage','fixed-pose-measured.png'),('maximumImage','fixed-pose-maximum.png')]:
+   for key,name in [('silentImage','fixed-pose-silent.png'),('measuredImage','fixed-pose-measured.png'),('maximumImage','fixed-pose-maximum.png'),('speciesImage','species-response.png')]:
     (OUT/name).write_bytes(base64.b64decode(pixels.pop(key).split(',',1)[1]))
    assert pixels['disabled']==0 and pixels['colour']>100 and pixels['motion']>100 and pixels['reducedMotion']==0 and pixels['reducedColour']>100,pixels
    assert pixels['brightPaletteViolations']==[],pixels['brightPaletteViolations']

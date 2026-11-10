@@ -30,7 +30,8 @@ export function crawlReactivePose(creature,amount,time,reduced=false,bounds=null
   if(!i)return{x:0,y:0};
   const energy=Math.sqrt(clamp(creature.audio.segments?.[i]??creature.audio.level));
   const wave=Math.sin(time*2.8+creature.audio.mid*.8+i*.77+creature.index)*energy*amount;
-  let distance=wave*(creature.kind==='centipede'?11:14)*u;
+  const excursion={centipede:11,spider:i===2?6:1,beetle:0,mantis:i*2.6,scorpion:2}[creature.kind]||0;
+  let distance=wave*excursion*u;
   const legs=creature.legs.filter(l=>l.segment===i),nx=-Math.sin(s.angle),ny=Math.cos(s.angle);
   // Retain two-bone reach, including partially extended legs during a stride.
   for(let n=0;n<12;n++){
@@ -173,41 +174,76 @@ export class CrawlRenderer{
   return{primary:hexColour(first),secondary:hexColour(second),highlight,glow,energy:audio.energy,fill:clamp(amount*Math.sqrt(audio.energy)*1.8)*(audio.reduced?.2:1)};
  }
  bodySegment(c,s,index,creature,u,primary,secondary,a,ink){
-  const response=this.audioAt(creature,a,index/(creature.segments.length||1)),lift=response.reduced?0:Math.sqrt(response.energy)*clamp(a.audioMotion??.65),anatomy=crawlAnatomy(creature.kind),plate=anatomy.plates[index]||anatomy.plates.at(-1),length=plate.length*u,width=plate.width*u*(1+num(creature.breathe)*Math.sin(index*.73+.8)+lift*(creature.kind==='beetle'?.8:1.25)),halfL=length*.5,halfW=width*.5,detail=clamp(a.anatomyDetail??.75),kind=creature.kind;
-  c.save();c.translate(s.x,s.y);c.rotate(num(s.angle,creature.angle)+num(creature.bodySway)*Math.sin(index*.7+.6)*(kind==='mantis'?.7:.3));
+  const response=this.audioAt(creature,a,index/(creature.segments.length||1)),drive=response.reduced?0:Math.sqrt(response.energy)*clamp(a.audioMotion??.65),kind=creature.kind,anatomy=crawlAnatomy(kind),plate=anatomy.plates[index]||anatomy.plates.at(-1),detail=clamp(a.anatomyDetail??.75),heat=ink.fill;
+  // Each anatomy owns its deformation and illuminated surfaces. There is no
+  // shared audio scale or rectangular fill layered over the different shells.
+  let halfL=plate.length*u*.5,halfW=plate.width*u*.5;
+  const ripple=Math.sin(index*.9-response.local*2.2);
+  if(kind==='centipede'){halfL*=1-drive*.24;halfW*=1+drive*.08;}
+  if(kind==='spider'&&index===2){halfL*=1+drive*.16;halfW*=1+drive*.16;}
+  const flex=kind==='mantis'&&index>0?drive*.25*(index%2?1:-1):kind==='scorpion'?drive*ripple*.09:0;
+  c.save();c.translate(s.x,s.y);c.rotate(num(s.angle,creature.angle)+flex+num(creature.bodySway)*Math.sin(index*.7+.6)*.3);
+  const line=(pts,opacity=.8,width=.8)=>stroke(c,pts,rgba(primary,opacity),width*u);
   if(kind==='beetle'){
-   // Separate faceted elytra meet at a raised longitudinal seam; the shell is
-   // broad and shield-shaped even when the secondary construction is hidden.
+   // Rigid carapace, hinged paired elytra. Only the wing covers open.
    const outline=[[halfL,-halfW*.52],[halfL*.55,-halfW],[-halfL*.58,-halfW],[-halfL,-halfW*.47],[-halfL,halfW*.47],[-halfL*.58,halfW],[halfL*.55,halfW],[halfL,halfW*.52]];
-   polygon(c,outline,rgba(a.panelColour,.82),rgba(secondary,.88),Math.max(.8,u));
+   polygon(c,outline,rgba(a.panelColour,.86),rgba(secondary,.86),.85*u);
    for(const side of[-1,1]){
-    polygon(c,[[halfL*.88,0],[halfL*.45,side*halfW*.83],[-halfL*.48,side*halfW*.83],[-halfL*.86,side*halfW*.36],[-halfL*.86,0]],rgba(primary,.08+detail*.035),rgba(primary,.64),.75*u);
-    if(detail>0)for(let k=0;k<4;k++){const xx=lerp(-halfL*.63,halfL*.52,k/3);stroke(c,[[xx,side*halfW*.12],[xx+halfL*.23,side*halfW*.46],[xx+halfL*.12,side*halfW*.73]],rgba(secondary,detail*.53),.6*u);}
+    c.save();c.translate(halfL*.7,0);c.rotate(-side*(index?drive*.65:0));c.translate(-halfL*.7,0);
+    const shell=[[halfL*.7,0],[halfL*.42,side*halfW*.86],[-halfL*.48,side*halfW*.86],[-halfL*.88,side*halfW*.36],[-halfL*.88,0]];
+    polygon(c,shell,rgba(primary,.05+heat*.24),rgba(primary,.88),.85*u);
+    // Colour runs along the wing veins rather than filling the whole thorax.
+    for(let k=0;k<4;k++){const xx=lerp(-halfL*.63,halfL*.3,k/3);stroke(c,[[xx,0],[xx+halfL*.23,side*halfW*.46],[xx+halfL*.12,side*halfW*.73]],rgba(k%2?secondary:primary,(.3+heat*.65)*detail),(.6+heat*.5)*u);}
+    c.restore();
    }
-   stroke(c,[[-halfL*.88,0],[halfL*.90,0]],rgba(primary,.95),Math.max(.8,u));
-   if(index===0)stroke(c,[[halfL*.3,-halfW*.4],[halfL*.7,0],[halfL*.3,halfW*.4]],rgba(primary,.84),.9*u);
+   line([[-halfL*.88,0],[halfL*.90,0]],.95);
+  }else if(kind==='spider'){
+   // Faceted abdomen with radial tension lines; a compact cephalothorax.
+   const outline=Array.from({length:8},(_,k)=>{const angle=k*TAU/8;return[Math.cos(angle)*halfL,Math.sin(angle)*halfW];});
+   polygon(c,outline,rgba(a.panelColour,.85),rgba(secondary,.95),.9*u);
+   const core=[halfL*.22,0];
+   for(let k=0;k<8;k++){
+    const p=outline[k],q=outline[(k+1)%8],tension=index===2?drive:.15*drive;
+    const inner=[p[0]*(.55+tension*.13),p[1]*(.55+tension*.13)];
+    if(index===2&&k%2===0)polygon(c,[core,inner,[q[0]*.65,q[1]*.65]],rgba(k%4?secondary:primary,heat*.55),null);
+    stroke(c,[core,inner,p],rgba(primary,(.3+heat*.5)*detail),.65*u);
+   }
+   if(index===0)for(const side of[-1,1])dot(c,halfL*.35,side*halfW*.4,1.2*u,rgba(primary,.85+heat*.15));
   }else if(kind==='mantis'){
-   if(index===0){polygon(c,[[halfL,0],[-halfL,-halfW],[-halfL*.72,0],[-halfL,halfW]],rgba(a.panelColour,.82),rgba(primary,.94),Math.max(.9,u));if(detail>0)stroke(c,[[-halfL*.5,-halfW*.52],[halfL*.5,0],[-halfL*.5,halfW*.52]],rgba(secondary,detail*.9),.7*u);}
-   else{polygon(c,[[halfL,0],[halfL*.54,-halfW],[-halfL*.70,-halfW*.72],[-halfL,0],[-halfL*.70,halfW*.72],[halfL*.54,halfW]],rgba(a.panelColour,.80),rgba(secondary,.91),.9*u);stroke(c,[[-halfL*.8,0],[halfL*.8,0]],rgba(primary,.92),1*u);if(detail>0){for(const side of[-1,1])stroke(c,[[-halfL*.55,side*halfW*.40],[halfL*.35,side*halfW*.65],[halfL*.6,0]],rgba(primary,detail*.53),.65*u);}}
+   if(index===0){
+    const head=[[halfL,0],[-halfL,-halfW],[-halfL*.72,0],[-halfL,halfW]];
+    polygon(c,head,rgba(a.panelColour,.85),rgba(primary,.95),u);
+    for(const side of[-1,1]){dot(c,-halfL*.8,side*halfW*.72,1.5*u,rgba(secondary,.8));line([[-halfL*.5,side*halfW*.5],[halfL*.5,0]],.4+heat*.5);}
+   }else{
+    const thorax=[[halfL,0],[halfL*.54,-halfW],[-halfL*.70,-halfW*.72],[-halfL,0],[-halfL*.70,halfW*.72],[halfL*.54,halfW]];
+    polygon(c,thorax,rgba(a.panelColour,.85),rgba(secondary,.91),.9*u);
+    // Longitudinal nerve and alternating serrations preserve the slender form.
+    line([[-halfL*.8,0],[halfL*.8,0]],.5+heat*.5,1+heat*.6);
+    for(const side of[-1,1])for(let k=0;k<3;k++){
+     const x=lerp(-halfL*.5,halfL*.3,k/2);line([[x-halfL*.15,0],[x,side*halfW*.65],[x+halfL*.22,side*halfW*.8]],(.35+heat*.6)*detail,.7);
+    }
+   }
   }else if(kind==='scorpion'){
-   polygon(c,[[halfL,0],[halfL*.67,-halfW],[-halfL*.66,-halfW*.83],[-halfL,-halfW*.42],[-halfL,halfW*.42],[-halfL*.66,halfW*.83],[halfL*.67,halfW]],rgba(a.panelColour,.83),rgba(secondary,.85),.85*u);
-   stroke(c,[[-halfL*.7,-halfW*.62],[halfL*.48,-halfW*.72],[halfL*.77,0],[halfL*.48,halfW*.72],[-halfL*.7,halfW*.62]],rgba(primary,.89),Math.max(.8,u));
-   if(detail>0)for(const side of[-1,1])stroke(c,[[-halfL*.6,side*halfW*.32],[halfL*.2,side*halfW*.40],[halfL*.5,0]],rgba(secondary,detail*.62),.6*u);
+   const outline=[[halfL,0],[halfL*.67,-halfW],[-halfL*.66,-halfW*.83],[-halfL,-halfW*.42],[-halfL,halfW*.42],[-halfL*.66,halfW*.83],[halfL*.67,halfW]];
+   polygon(c,outline,rgba(a.panelColour,.86),rgba(secondary,.88),.85*u);
+   // Overlapping chevrons lift at their trailing edges; colour follows armour seams.
+   for(const side of[-1,1]){
+    const lift=drive*halfW*.35;
+    polygon(c,[[-halfL*.7,side*halfW*.5],[halfL*.5,side*(halfW*.72+lift)],[halfL*.8,0],[halfL*.4,side*halfW*.37]],rgba(primary,heat*.4),rgba(primary,.7+heat*.3),.85*u);
+    if(detail>0)line([[-halfL*.6,side*halfW*.25],[halfL*.2,side*halfW*.38],[halfL*.5,0]],detail*.6,.6);
+   }
   }else{
-   c.fillStyle=rgba(a.panelColour,.74);c.fillRect(-halfL,-halfW,length,width);
-   rect(c,-halfL,-halfW,length,width,rgba(secondary,.90),.85);
-   if(detail>0){rect(c,-halfL-2*u,-halfW-2*u,length+4*u,width+4*u,rgba(secondary,detail*.58),.65);const offset=(2.8+lift*10)*u;stroke(c,[[-halfL,-halfW],[-halfL+offset,-halfW-offset],[halfL+offset,-halfW-offset],[halfL,-halfW]],rgba(secondary,detail*.42),.55);stroke(c,[[halfL,-halfW],[halfL+offset,-halfW-offset],[halfL+offset,halfW-offset],[halfL,halfW]],rgba(secondary,detail*.42),.55);}
-   const inset=Math.max(1.9*u,Math.min(width*.23,3.2*u));
-   if(index%4===1||kind==='spider'){c.fillStyle=rgba(primary,index%3===0?.52:.16);c.fillRect(-halfL+inset,-halfW+inset,length-inset*2,width-inset*2);}
-   stroke(c,[[halfL-inset,-halfW+inset],[-halfL+inset,-halfW+inset],[-halfL+inset,halfW-inset],[halfL-inset,halfW-inset]],rgba(primary,.98),Math.max(.8,1.25*u));
-   if(index%2===0)stroke(c,[[halfL-inset,halfW-inset],[halfL-inset,halfW-inset*2.1]],rgba(primary,.68),.8*u);
+   // Centipede: short telescoping vertebrae, with paired chromatic ganglia.
+   const outline=[[halfL,-halfW*.75],[halfL*.55,-halfW],[-halfL*.65,-halfW],[-halfL,-halfW*.65],[-halfL,halfW*.65],[-halfL*.65,halfW],[halfL*.55,halfW],[halfL,halfW*.75]];
+   polygon(c,outline,rgba(a.panelColour,.8),rgba(secondary,.9),.85*u);
+   if(detail>0){const depth=(1.5+drive*3)*u;stroke(c,[[-halfL,-halfW*.65],[-halfL-depth,-halfW-depth],[halfL*.55-depth,-halfW-depth],[halfL*.55,-halfW]],rgba(secondary,detail*.6),.6*u);}
+   for(const side of[-1,1]){
+    const x=halfL*.12,y=side*halfW*.47,r=Math.min(halfL*.55,halfW*.29);
+    polygon(c,[[x-r,y-r],[x+r,y-r],[x+r,y+r],[x-r,y+r]],rgba(index%2?secondary:primary,.12+heat*.78),rgba(primary,.8),.6*u);
+   }
+   line([[-halfL*.85,0],[halfL*.85,0]],.75,.7);
   }
-  if(ink.fill>.001){
-   const facet=kind==='mantis'&&index===0?[[halfL*.55,0],[-halfL*.65,-halfW*.65],[-halfL*.65,halfW*.65]]:[[halfL*.65,-halfW*.62],[-halfL*.7,-halfW*.62],[-halfL*.7,halfW*.62],[halfL*.65,halfW*.62]];
-   polygon(c,facet,rgba(primary,ink.fill),rgba(secondary,ink.fill*.6),.6*u);
-   stroke(c,[[0,-halfW*.62],[0,halfW*.62]],rgba(a.panelColour,.6),Math.max(.8,u));
-  }
-  const pulse=clamp(creature.pulse||0);if(pulse>.1){stroke(c,[[-halfL*.45,0],[halfL*.45,0]],rgba(primary,pulse*.65),Math.max(.8,u));}
+  const pulse=clamp(creature.pulse||0);if(pulse>.1)line([[-halfL*.3,0],[halfL*.3,0]],pulse*.65);
   audioWire(c,[[-halfL*.62,0],[halfL*.63,0]],ink,u,Math.max(.8,u));
   c.restore();
  }
@@ -226,7 +262,7 @@ export class CrawlRenderer{
    dot(c,knee.x,knee.y,1.2*joint,rgba(ink.primary,.93));dot(c,tip.x,tip.y,joint,rgba(ink.secondary,.83));
    if(claw.kind==='pincer'){
     const dx=tip.x-knee.x,dy=tip.y-knee.y,length=Math.hypot(dx,dy)||1,nx=-dy/length,ny=dx/length,shoulder={x:tip.x-dx/length*8*u,y:tip.y-dy/length*8*u};
-    const inner=innerTip||tip,outer=outerTip||tip;polygon(c,[[shoulder.x+nx*5*u,shoulder.y+ny*5*u],[tip.x+nx*7*u,tip.y+ny*7*u],[outer.x,outer.y],[tip.x+nx*2*u,tip.y+ny*2*u],[inner.x,inner.y],[shoulder.x-nx*4*u,shoulder.y-ny*4*u]],rgba(ink.primary,.065),rgba(ink.primary,.9),weight);
+    const inner=innerTip||tip,outer=outerTip||tip;polygon(c,[[shoulder.x+nx*5*u,shoulder.y+ny*5*u],[tip.x+nx*7*u,tip.y+ny*7*u],[outer.x,outer.y],[tip.x+nx*2*u,tip.y+ny*2*u],[inner.x,inner.y],[shoulder.x-nx*4*u,shoulder.y-ny*4*u]],rgba(ink.primary,.065+ink.fill*.25),rgba(ink.primary,.9),weight);
     if(a.anatomyDetail>0)stroke(c,[shoulder,tip],rgba(ink.secondary,a.anatomyDetail*.9),.65*u);
    }else{
     if(innerTip)stroke(c,[tip,innerTip],rgba(ink.primary,.86),weight);
