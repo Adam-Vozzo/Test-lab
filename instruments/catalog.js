@@ -17,6 +17,8 @@ export const INSTRUMENTS=[
   {id:'roses',name:'Roses',description:'ASCII petals · glass chimes',colors:['#e94c90','#a5c6a1'],load:()=>import('./roses.js')},
   {id:'rotor',name:'Rotor',description:'Chromatic rotors · spectral synthesis',colors:['#ffb536','#ee4baa'],load:()=>import('./rotor.js')},
   {id:'vesicle',name:'Vesicle',description:'Suspended creature · bubble resonance',colors:['#7ce8ef','#597bdd'],load:()=>import('./vesicle.js')},
+  {id:'telemetry',name:'Telemetry',description:'Pulse contacts · vector scope',colors:['#a9f7cd','#ffc978'],load:()=>import('./telemetry.js')},
+  {id:'undercrypt',name:'Undercrypt',description:'ASCII dungeon · encounter phrases',colors:['#edac67','#bdb1ff'],load:()=>import('./undercrypt.js')},
   {id:'crawl',name:'Crawl',description:'Autonomous creatures · living circuitry',colors:['#d6ef62','#7273c8'],load:()=>import('./crawl.js')},
 ];
 
