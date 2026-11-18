@@ -54,7 +54,8 @@ function meter(c,bpm,x,y,h) {
 export const definition = {
   id: 'telemetry', name: 'Telemetry', keyboardNotes: true,
   theme: { bg: '#091814', fg: '#daeee2', accent: mint, muted: '#759a8a' },
-  defaultSound: { waveform: 'sine', gain: .50, attack: .006, decay: .13, sustain: .36, release: .34, cutoff: 2300 },
+  defaultSound: { waveform: 'sine', gain: .50, attack: .006, decay: .13, sustain: .36, release: .34, cutoff: 2300, returnLevel: .62 },
+  soundControls: [{key:'returnLevel',label:'Return transducer',section:'Pulse',min:0,max:1,step:.01,description:'Level of the delayed second heart sound and accent overtone.'}],
   defaultAppearance: { persistence: .72, halation: .8 },
   appearanceControls: [
     { key:'halation', label:'Beam halation', section:'Scope', min:0, max:1, step:.01, description:'Amount of amber light scattered around the live trace.' },
@@ -74,7 +75,18 @@ export function mount(host, api) {
   const pressedKeys=new Map();
   let pattern = [1,0,2,0,1,1,2,0], degree=3, harmonic=2, stamp=-1, step=0;
   const layout = () => splitLayout(surface.width,surface.height,api.state.appearance,{pad:8});
-  const sound = (strength) => ({waveform:'triangle', velocity:strength, attack:.003, decay:.09, sustain:.15, release:.16, cutoff:900+strength*1300});
+  function heartbeat(strength){
+    const voice=api.state.sound;
+    return {waveform:'triangle',ratio:.5,index:1.15,velocity:strength,attack:voice.attack,decay:voice.decay*.85,sustain:voice.sustain*.67,release:voice.release*.43,cutoff:voice.cutoff*(.26+.40*strength)};
+  }
+  function returnBeat(when,midi,strength,accent){
+    const level=api.state.sound.returnLevel;
+    if(!level)return;
+    const spacing=Math.min(.145,60/api.state.bpm*.25);
+    api.audio.pulse('telemetry-valve',midi+7,{waveform:'sine',ratio:2,index:.72,attack:.003,decay:.045,sustain:.16,release:.06,velocity:level*strength*.85},when+spacing,.08);
+    const overtone={waveform:'sine',ratio:harmonic,index:.23+.11*harmonic,attack:.005,decay:.115,sustain:.32,release:.17,velocity:level*(accent?.72:.41)};
+    api.audio.pulse('telemetry-overtone',api.quantize(degree,accent?1:0),overtone,when+spacing,.10);
+  }
   function strike(when, strength, index) {
     beats.push({when,strength,index});
     if(beats.length>96) beats.shift();
@@ -82,7 +94,8 @@ export function mount(host, api) {
   function scopeNote(p, box) {
     degree=Math.round(clamp((p.x-box.x)/box.w)*14);
     harmonic=1+Math.round(clamp(1-(p.y-box.y)/box.h)*7);
-    return {waveform:'sine',ratio:harmonic,index:1+harmonic*.5,velocity:.66,cutoff:4800};
+    const drive=clamp(1-(p.y-box.y)/box.h);
+    return {waveform:'sine',ratio:harmonic,index:.25+drive*drive*3.4,velocity:.85,attack:.014,sustain:.58,cutoff:api.state.sound.cutoff*(1+drive)};
   }
   function touch(p, first) {
     const {left,right} = layout();
@@ -101,7 +114,9 @@ export function mount(host, api) {
       if(zone==='contacts'){pattern[index]=(pattern[index]+1)%3;pressedKeys.set(p.id,index);}
       const strength=zone==='contacts'?(pattern[index]===2?1:.55):clamp(1-(p.y-left.y)/left.h,.35,1);
       strike(api.audio.now,strength,index);
-      api.noteOn(id,api.quantize(index%4-5),sound(strength));
+      const midi=api.quantize(index%4-5);
+      api.noteOn(id,midi,heartbeat(strength));
+      returnBeat(api.audio.now,midi,strength,strength>.85);
     }
   }
   const unbind=bindPointers(surface.canvas,{
@@ -109,8 +124,13 @@ export function mount(host, api) {
     up(p){api.noteOff('telemetry-touch-'+p.id);contacts.delete(p.id);pressedKeys.delete(p.id);api.save();},
     cancel(p){api.noteCancel('telemetry-touch-'+p.id);contacts.delete(p.id);pressedKeys.delete(p.id);}
   });
-  function plotGrid(x,y,w,h,cols,rows) {
-    for(let i=0;i<=cols;i++)line(c,[[x+i*w/cols,y],[x+i*w/cols,y+h]],i%4?'#c293834c':'#bd84749c');
+  function plotGrid(x,y,w,h,cols,rows,time) {
+    const phase=time*cols/3;
+    for(let i=0;i<=cols;i++){
+      const xx=x+(i-phase%1)*w/cols;
+      if(xx<x)continue;
+      line(c,[[xx,y],[xx,y+h]],(i+Math.floor(phase))%4?'#c293834c':'#bd84749c');
+    }
     for(let i=0;i<=rows;i++)line(c,[[x,y+i*h/rows],[x+w,y+i*h/rows]],i%3?'#c293834c':'#bd84749c');
   }
   function strip(box,snapshot) {
@@ -122,21 +142,37 @@ export function mount(host, api) {
     label(c,'3 SEC   /   STRIP',x+w-2,y+h*.14,ink,10,'right');
     panel(c,x-4,top-4,w+8,bottom-top+9,4,'#54594f');
     panel(c,x-1,top-1,w+2,bottom-top+2,1,vertical(c,top,bottom-top,[[0,'#b3a88e'],[.045,'#e9dfc9'],[.90,'#f4e9d5'],[1,'#ded3b9']]));
-    plotGrid(x,top,w,bottom-top,32,12);
+    const paperTime=api.reducedMotion?0:now;
+    plotGrid(x,top,w,bottom-top,32,12,paperTime);
+    // The paper and registration holes travel at the same three-second speed.
+    for(let i=0;i<16;i++){
+      const sx=x+((i+1-(paperTime*16/3)%1)%16)*w/16;
+      if(sx>x+w-4)continue;
+      for(const sy of [top+3,bottom-6]){
+        c.fillStyle='#baa68b';c.fillRect(sx,sy,3,3);
+        c.fillStyle='#6d6355';c.fillRect(sx,sy,3,1.5);
+      }
+    }
     if(!snapshot.time && !beats.length){
       const reference=[];
       for(let i=0;i<=w;i+=2)reference.push([x+i,top+(bottom-top)*(.61-impulse((i/w*3)%.9,.8)*.52)]);
       line(c,reference,'#7b8374',1);
       label(c,'REFERENCE',x+w-4,top+9,'#696751',8,'right');
     }
-    const points=[];
-    for(let i=0;i<=w;i+=2){
-      const at=now-3*(1-i/w);
+    const points=[], travel=w*.96;
+    for(let i=0;i<travel+2;i+=2){
+      const position=Math.min(i,travel),at=now-3*(travel-position)/w;
       let voltage=0;
-      for(let j=beats.length-1;j>=0;j--){const age=at-beats[j].when;if(age>.65)break;if(age>=0)voltage+=impulse(age,beats[j].strength);}
-      points.push([x+i,top+(bottom-top)*(.61-voltage*.52)]);
+      for(let j=beats.length-1;j>=0;j--){const age=at-beats[j].when;if(age>.65)break;if(age>=-.16)voltage+=impulse(age+.16,beats[j].strength);}
+      points.push([x+position,top+(bottom-top)*(.61-voltage*.52)]);
     }
     line(c,points,'#37453e',1.7);
+    const [tipX,tipY]=points.at(-1);
+    const pivotX=x+w+1,pivotY=top+(bottom-top)*.35;
+    line(c,[[pivotX,pivotY+1],[tipX+1,tipY+2]],'#514e4266',3.5);
+    line(c,[[pivotX,pivotY],[tipX,tipY]],'#5b6058',3);
+    line(c,[[pivotX-1,pivotY],[tipX,tipY-1]],'#c7c8b6',1);
+    panel(c,pivotX-3,pivotY-4,5,8,1,'#4e534b');
     label(c,'PULSE CONTACTS   /   REST · BEAT · ACCENT',x+3,bottom+15,ink,Math.min(9,w/38));
     const cy=y+h*.90, gap=w/8;
     pattern.forEach((value,i)=>{
@@ -147,7 +183,9 @@ export function mount(host, api) {
         [0,value===2?'#ffd08e':value?'#c6cfb2':'#989f90'],
         [.16,value===2?'#cd9753':value?'#879d83':'#626f65'],
         [1,value===2?'#9c6436':value?'#52695a':'#414c43']]));
-      if(i===step){c.fillStyle='#b76931';c.fillRect(cx-radius*.55,cy+radius+6,radius*1.1,2);}
+      const lit=i===step&&value&&beats.some(b=>b.index===i&&b.strength>0&&now>=b.when&&now-b.when<.14);
+      panel(c,cx-radius*.55,cy+radius+5,radius*1.1,3,1,lit?'#fff0a0':i===step?'#c77d3d':'#757468');
+      if(lit){c.fillStyle='#ffad4940';c.fillRect(cx-radius*.62,cy+radius+4,radius*1.24,5);}
       if(value){for(let tick=0;tick<value;tick++){const tx=cx+(tick-(value-1)/2)*4;line(c,[[tx,cy-radius*.35],[tx,cy+radius*.35]],mint,2);}}
       else{c.fillStyle='#638272';c.fillRect(cx-1,cy-1,2,2);}
     });
@@ -156,7 +194,7 @@ export function mount(host, api) {
     const {halation,persistence}=api.state.appearance;
     c.lineCap='round';
     c.lineJoin='round';
-    ghosts.forEach(({path,peak},i)=>{
+    ghosts.forEach(({path,peak,tipX,tipY},i)=>{
       const age=ghosts.length-1-i;
       if(age){
         c.strokeStyle=rgba('#f39a40',persistence*.38*Math.pow(.67,age-1));
@@ -182,6 +220,9 @@ export function mount(host, api) {
       }
       c.strokeStyle='#ffb751';c.lineWidth=2.1;c.stroke(path);
       c.strokeStyle=rgba('#fff7cf',.55+.45*heat);c.lineWidth=1;c.stroke(path);
+      if(!api.reducedMotion){
+        c.fillStyle='#fff3ce';c.beginPath();c.arc(tipX,tipY,1.35,0,TAU);c.fill();
+      }
     });
   }
   function scope(box,snapshot) {
@@ -202,16 +243,23 @@ export function mount(host, api) {
       let peak=0;
       for(const sample of trace) peak=Math.max(peak,Math.abs(sample));
       const gain=peak>.001?Math.min(42,.84/peak):0;
-      const lag=5+harmonic*2;
+      // A quarter-cycle delay gives the bass pulse a visible phase portrait.
+      // Read the sounding pitch so the projection follows both hands and clock.
+      const dominant=snapshot.voices.reduce((best,voice)=>!best||voice.level>best.level?voice:best,null);
+      const hz=440*2**(((dominant?.midi??api.quantize(degree))-69)/12);
+      const lag=Math.round(clamp((api.audio.context?.sampleRate??48000)/(4*hz),2,trace.length/3));
       const path=new Path2D();
+      let tipX=cx,tipY=cy;
       for(let i=0;i<trace.length-lag;i+=2){
         const px=cx+clamp(trace[i]*gain,-1,1)*r,py=cy-clamp(trace[i+lag]*gain,-1,1)*r;
         if(i===0)path.moveTo(px,py);else path.lineTo(px,py);
+        tipX=px;tipY=py;
       }
-      ghosts.push({path,peak});if(ghosts.length>5)ghosts.shift();stamp=snapshot.time;
+      ghosts.push({path,peak,tipX,tipY});if(ghosts.length>5)ghosts.shift();stamp=snapshot.time;
     }
     const halo=c.createRadialGradient(cx,cy,0,cx,cy,r);halo.addColorStop(0,'#46301c');halo.addColorStop(.76,'#302117');halo.addColorStop(.96,'#20160f');halo.addColorStop(1,'#4a3220');
     c.fillStyle=halo;c.beginPath();c.arc(cx,cy,r,0,TAU);c.fill();
+    c.lineWidth=1;
     for(let i=1;i<=4;i++){c.beginPath();c.arc(cx,cy,r*i/4,0,TAU);c.strokeStyle=i===4?'#977a52':'#57402a';c.stroke();}
     for(let i=0;i<64;i++){const a=i*TAU/64,len=i%8===0?9:3;
       line(c,[[cx+Math.cos(a)*(r-len),cy+Math.sin(a)*(r-len)],[cx+Math.cos(a)*r,cy+Math.sin(a)*r]],'#a28459');}
@@ -238,8 +286,9 @@ export function mount(host, api) {
       housing(c,surface.width,surface.height,finish);
       strip(left,snapshot);scope(right,snapshot);},
     onStep(n,when){if(n%2)return;const index=(n/2)%8,value=pattern[index];strike(when,value===2?1:value*.66,index);if(!value)return;
-      api.audio.pulse('telemetry-low',api.quantize(-7+index%3),sound(value===2?1:.7),when,.09);
-      api.audio.pulse('telemetry-return',api.quantize(degree),{waveform:'sine',ratio:harmonic,index:1.8,velocity:.36,release:.23},when+.115,.055);
+      const midi=api.quantize(-6+index%3),strength=value===2?1:.78;
+      api.audio.pulse('telemetry-low',midi,heartbeat(strength),when,.105);
+      returnBeat(when,midi,strength,value===2);
     },
     cancel(){for(const id of contacts.keys())api.noteCancel('telemetry-touch-'+id);contacts.clear();pressedKeys.clear();beats.length=0;},
     getData:()=>({pattern:[...pattern],degree,harmonic}),
