@@ -55,8 +55,10 @@ export const definition = {
   id: 'telemetry', name: 'Telemetry', keyboardNotes: true,
   theme: { bg: '#091814', fg: '#daeee2', accent: mint, muted: '#759a8a' },
   defaultSound: { waveform: 'sine', gain: .50, attack: .006, decay: .13, sustain: .36, release: .34, cutoff: 2300 },
-  defaultAppearance: { persistence: .72 },
-  appearanceControls: [{ key:'persistence', label:'Phosphor persistence', section:'Scope', min:0, max:1, step:.01, description:'Brightness of the previous waveform traces on the scope.' }]
+  defaultAppearance: { persistence: .72, halation: .8 },
+  appearanceControls: [
+    { key:'halation', label:'Beam halation', section:'Scope', min:0, max:1, step:.01, description:'Amount of amber light scattered around the live trace.' },
+    { key:'persistence', label:'Phosphor persistence', section:'Scope', min:0, max:1, step:.01, description:'Brightness of the previous waveform traces on the scope.' }]
 };
 
 function impulse(age, strength) {
@@ -150,6 +152,38 @@ export function mount(host, api) {
       else{c.fillStyle='#638272';c.fillRect(cx-1,cy-1,2,2);}
     });
   }
+  function drawBeam(cx,cy,r) {
+    const {halation,persistence}=api.state.appearance;
+    c.lineCap='round';
+    c.lineJoin='round';
+    ghosts.forEach(({path,peak},i)=>{
+      const age=ghosts.length-1-i;
+      if(age){
+        c.strokeStyle=rgba('#f39a40',persistence*.38*Math.pow(.67,age-1));
+        c.lineWidth=1.5;
+        c.stroke(path);
+        return;
+      }
+      if(peak<.001){
+        c.fillStyle='#e7ad64';
+        c.beginPath();c.arc(cx,cy,1,0,TAU);c.fill();
+        return;
+      }
+      // Stroke the entire projected signal as a single filament so crossings
+      // cannot accumulate a full-screen wash on harmonically dense notes.
+      const heat=.4+.6*clamp(Math.sqrt(peak)*2.5);
+      for(const [width,colour,opacity] of [
+        [.15,'#ff6515',.06],[.09,'#ff7a25',.11],
+        [.05,'#ff992d',.23],[.026,'#ffc159',.48]
+      ]){
+        c.strokeStyle=rgba(colour,halation*heat*opacity);
+        c.lineWidth=Math.max(2,r*width);
+        c.stroke(path);
+      }
+      c.strokeStyle='#ffb751';c.lineWidth=2.1;c.stroke(path);
+      c.strokeStyle=rgba('#fff7cf',.55+.45*heat);c.lineWidth=1;c.stroke(path);
+    });
+  }
   function scope(box,snapshot) {
     const {x,y,w,h}=box,cx=x+w*.5,cy=y+h*.49,r=Math.min(w*.44,h*.37);
     label(c,'VECTOR OSCILLOSCOPE',x+8,y+11,ink,10);
@@ -169,26 +203,30 @@ export function mount(host, api) {
       for(const sample of trace) peak=Math.max(peak,Math.abs(sample));
       const gain=peak>.001?Math.min(42,.84/peak):0;
       const lag=5+harmonic*2;
-      const points=[];
-      for(let i=0;i<trace.length-lag;i+=2)points.push([cx+clamp(trace[i]*gain,-1,1)*r,cy-clamp(trace[i+lag]*gain,-1,1)*r]);
-      ghosts.push(points);if(ghosts.length>5)ghosts.shift();stamp=snapshot.time;
+      const path=new Path2D();
+      for(let i=0;i<trace.length-lag;i+=2){
+        const px=cx+clamp(trace[i]*gain,-1,1)*r,py=cy-clamp(trace[i+lag]*gain,-1,1)*r;
+        if(i===0)path.moveTo(px,py);else path.lineTo(px,py);
+      }
+      ghosts.push({path,peak});if(ghosts.length>5)ghosts.shift();stamp=snapshot.time;
     }
-    const halo=c.createRadialGradient(cx,cy,0,cx,cy,r);halo.addColorStop(0,'#244333');halo.addColorStop(1,'#0e2019');
+    const halo=c.createRadialGradient(cx,cy,0,cx,cy,r);halo.addColorStop(0,'#46301c');halo.addColorStop(.76,'#302117');halo.addColorStop(.96,'#20160f');halo.addColorStop(1,'#4a3220');
     c.fillStyle=halo;c.beginPath();c.arc(cx,cy,r,0,TAU);c.fill();
-    for(let i=1;i<=4;i++){c.beginPath();c.arc(cx,cy,r*i/4,0,TAU);c.strokeStyle=i===4?'#739880':'#385641';c.stroke();}
+    for(let i=1;i<=4;i++){c.beginPath();c.arc(cx,cy,r*i/4,0,TAU);c.strokeStyle=i===4?'#977a52':'#57402a';c.stroke();}
     for(let i=0;i<64;i++){const a=i*TAU/64,len=i%8===0?9:3;
-      line(c,[[cx+Math.cos(a)*(r-len),cy+Math.sin(a)*(r-len)],[cx+Math.cos(a)*r,cy+Math.sin(a)*r]],'#839881');}
-    line(c,[[cx-r,cy],[cx+r,cy]],'#47644c');line(c,[[cx,cy-r],[cx,cy+r]],'#47644c');
+      line(c,[[cx+Math.cos(a)*(r-len),cy+Math.sin(a)*(r-len)],[cx+Math.cos(a)*r,cy+Math.sin(a)*r]],'#a28459');}
+    line(c,[[cx-r,cy],[cx+r,cy]],'#6a4d31');line(c,[[cx,cy-r],[cx,cy+r]],'#6a4d31');
     // The reference ellipse stays dim underneath the live time-delay projection.
     const guide=[];
     for(let i=0;i<=120;i++){const phase=i*TAU/120;guide.push([cx+r*.62*Math.sin(phase),cy-r*.55*Math.sin(phase+harmonic*.12)]);}
-    line(c,guide,'#426044',1);
-    label(c,'REF',cx+r*.53,cy-r*.58,'#73987a',8);
+    line(c,guide,'#795532',1);
+    label(c,'REF',cx+r*.53,cy-r*.58,'#bf9364',8);
     c.save();c.beginPath();c.arc(cx,cy,r,0,TAU);c.clip();
-    ghosts.forEach((points,i)=>line(c,points,i===ghosts.length-1?amber:rgba(amber,api.state.appearance.persistence*.16*(i+1)/5),i===ghosts.length-1?1.6:2));
     const glass=c.createLinearGradient(cx-r,cy-r,cx+r,cy+r);
-    glass.addColorStop(0,'#e8ffd520');glass.addColorStop(.44,'#d6ffdb08');glass.addColorStop(.45,'#ffffff00');glass.addColorStop(1,'#040e0670');
-    c.fillStyle=glass;c.fillRect(cx-r,cy-r,2*r,2*r);c.restore();
+    glass.addColorStop(0,'#ffecd320');glass.addColorStop(.44,'#f7cf9108');glass.addColorStop(.45,'#ffffff00');glass.addColorStop(1,'#1a0d0250');
+    c.fillStyle=glass;c.fillRect(cx-r,cy-r,2*r,2*r);
+    drawBeam(cx,cy,r);
+    c.restore();
     panel(c,cx-45,y+h*.91-10,90,21,3,'#323a31');
     label(c,api.noteName(api.quantize(degree))+'   ×'+harmonic,cx,y+h*.91,amber,16,'center');
     label(c,'X   PITCH     /     Y   FM RATIO',cx,y+h*.98,ink,9,'center');
