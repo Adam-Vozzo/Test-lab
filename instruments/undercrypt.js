@@ -1,20 +1,65 @@
-import {bindPointers,clamp,createSurface,label,line,seeded,TAU} from './kit.js';
+import {bindPointers,clamp,createSurface,seeded} from './kit.js';
 
 export const definition={
   id:'undercrypt',name:'Undercrypt',layoutMode:'single',keyboardNotes:true,
-  theme:{bg:'#171422',fg:'#f1dcc1',accent:'#edac67',muted:'#aaa1ad'},
+  theme:{bg:'#080b15',fg:'#d2d1cb',accent:'#60d3d1',muted:'#8a8ba2'},
   defaultSound:{waveform:'triangle',attack:.008,decay:.15,sustain:.38,release:.42,gain:.42,echo:.17,delayTime:.26,feedback:.2},
   defaultAppearance:{torch:1},
   appearanceControls:[{key:'torch',label:'Torch radius',section:'Dungeon',description:'Distance around the player lit by the torch.',min:.5,max:2,step:.05}]
 };
 const cols=39,rows=21;
-const palette={'@':'#ffe3a0','!':'#84e2d2','♦':'#f8c46d','w':'#f5889c','>':'#bdb1ff','#':'#8a799d','.':'#796a79'};
+// Five ink columns in a seven-row character cell. The atlas keeps the same
+// hard edges on Retina displays and does not depend on installed symbol fonts.
+const bitmap={
+  A:'0e11111f111111',B:'1e11111e11111e',C:'0f10101010100f',D:'1e11111111111e',
+  E:'1f10101e10101f',F:'1f10101e101010',G:'0f10101311110f',H:'1111111f111111',
+  I:'1f04040404041f',J:'0702020212120c',K:'11121418141211',L:'1010101010101f',
+  M:'111b1515111111',N:'11191915131311',O:'0e11111111110e',P:'1e11111e101010',
+  Q:'0e11111115120d',R:'1e11111e141211',S:'0f10100e01011e',T:'1f040404040404',
+  U:'1111111111110e',V:'11111111110a04',W:'11111115151b11',X:'11110a040a1111',
+  Y:'11110a04040404',Z:'1f01020408101f',
+  0:'0e11131519110e',1:'040c040404040e',2:'0e11010204081f',3:'1e01010e01011e',
+  4:'02060a121f0202',5:'1f10101e01011e',6:'0e10101e11110e',7:'1f010204080808',
+  8:'0e11110e11110e',9:'0e11110f01010e',
+  '@':'0e11171517100f','!':'04040404040004','♦':'040e1f1f1f0e04',
+  'b':'1010161911111e','w':'0000001111150a','>':'10080402040810','.':'00000000000004',
+  '♥':'000a1f1f0e0400','#':'0a0a1f0a1f0a0a','/':'01010204081010',
+  '-':'0000001f000000','+':'0004041f040400',':':'00040000040000'
+};
+const palette={'@':'#ffff63','!':'#55ffff','♦':'#ffba55','w':'#ff55aa','>':'#ffffff','#':'#4aa8a8','.':'#80948f'};
+
+function makeFont(){
+  const letters=Object.keys(bitmap),positions=new Map(letters.map((ch,i)=>[ch,i*6])),atlases=new Map();
+  return function print(c,word,x,y,scale,ink){
+    if(!atlases.has(ink)){
+      const atlas=document.createElement('canvas');atlas.width=letters.length*6;atlas.height=7;
+      const ctx=atlas.getContext('2d');ctx.fillStyle=ink;
+      for(const ch of letters)for(let row=0;row<7;row++){
+        const bits=parseInt(bitmap[ch].slice(row*2,row*2+2),16);
+        for(let col=0;col<5;col++)if(bits&(16>>col))ctx.fillRect(positions.get(ch)+col,row,1,1);
+      }
+      atlases.set(ink,atlas);
+    }
+    const atlas=atlases.get(ink);
+    for(const [i,ch] of [...String(word)].entries())if(positions.has(ch)){
+      c.drawImage(atlas,positions.get(ch),0,5,7,Math.round(x+i*6*scale),Math.round(y),5*scale,7*scale);
+    }
+  };
+}
 const instruments={
   '.':{name:'FOOTFALL',steps:[0],waveform:'triangle',octave:0},
   '!':{name:'POTION',steps:[0,4,7],waveform:'sine',octave:0},
   '♦':{name:'CRYSTAL',steps:[4,7,11],waveform:'sine',octave:1},
   'w':{name:'WRAITH',steps:[0,1,-3],waveform:'sawtooth',octave:-1},
   '>':{name:'DESCENT',steps:[7,4,2,0],waveform:'triangle',octave:0}
+};
+// Larger inventory portraits share the tile palette and square pixel pitch.
+const portraits={
+  '.':['      xx  ','     x++x ','     ++++ ','    x++x  ','    +++x  ','     xx   ','  xx      ',' x++x     ',' ++++     ','x++x      ','xxx       '],
+  '!':['   ++++   ','    xx    ','    xx    ','   x  x   ','  x    x  ',' x++++++x ',' x xxxxx x',' xxxxxxx x','  xxxxxx  ','   xxxx   '],
+  '♦':['    ++    ','   +xx+   ','  +x++x+  ',' +x+xx+x+ ','+xx+xx+xx+',' +x+xx+x+ ','  +x++x+  ','   +xx+   ','    ++    '],
+  'w':['  x    x  ',' x+x  x+x ',' xxxxxxxx ','xx++xx++xx',' xx xx xx ',' xxxxxxxx ','  x xx x  ',' x  xx  x ','    x     '],
+  '>':['++        ','xx++      ',' xxx++    ','  xxxx++  ','   xxxxx++','    xxxxxx','     xxxxx','      xxxx','       xxx']
 };
 function generate(floor){
   const random=seeded(floor*947+33),map=Array(cols*rows).fill(' '),rooms=[];
@@ -37,7 +82,7 @@ function generate(floor){
   for(let i=1;i<order.length;i++){const r=rooms[order[i]];map[r.y*cols+r.x]=['','♦','w','!','♦','>'][i];}
   return {map,start:rooms[0].y*cols+rooms[0].x};
 }
-const wornFloor=['.','.', '·', '·', '˙', '.', '∴'];
+
 const walkable=tile=>Boolean(tile)&&tile!=='#'&&tile!==' ';
 function pathTo(map,start,target){
   const queue=[start],parent=new Map([[start,-1]]);
@@ -53,6 +98,7 @@ export function mount(host,api){
   const surface=createSurface(host,{label:'Undercrypt. Tap a floor tile to walk a musical route. Arrow keys move one tile. Play explores automatically. The rune glyphs audition encounter phrases.'});
   const c=surface.ctx,held=new Map(),log=[],trail=[];
   let floor=1,world=generate(floor),player=world.start,route=[],cleared=new Set(),crystals=0,vitality=3,selected='.',nextMove=0,clock=0,lastMidi=api.quantize(0);
+  const print=makeFont();
   function geometry(){
     const w=surface.width,h=surface.height,wide=w>=h*.94;
     const mapWidth=wide?w*.71:w,mapHeight=wide?h*.81:h*.58;
@@ -126,35 +172,64 @@ export function mount(host,api){
   surface.canvas.addEventListener('keydown',keyboard);
   function draw(t){
     surface.resize();const {width:w,height:h}=surface,g=geometry(),{panel:p,cell}=g;
-    c.clearRect(0,0,w,h);
-    label(c,'UNDERCRYPT',g.x+2,14,'#edc594',13);
-    label(c,'DEPTH '+String(floor).padStart(2,'0'),g.x+cell*cols,14,'#af9ab4',10,'right');
-    const px=player%cols,py=Math.floor(player/cols);
-    const halo=c.createRadialGradient(g.x+(px+.5)*cell,g.y+(py+.5)*cell,0,g.x+(px+.5)*cell,g.y+(py+.5)*cell,cell*6*api.state.appearance.torch);
-    halo.addColorStop(0,'#674c385e');halo.addColorStop(1,'transparent');c.fillStyle=halo;c.fillRect(g.x,g.y,cell*cols,cell*rows);
-    c.font='bold '+Math.floor(cell*.98)+'px monospace';c.textAlign='center';c.textBaseline='middle';
+    c.imageSmoothingEnabled=false;
+    c.fillStyle='#080b15';c.fillRect(0,0,w,h);
+    const titleScale=w>980?2:1;
+    c.fillStyle='#183c78';c.fillRect(0,0,w,22);
+    print(c,'UNDERCRYPT',8,Math.floor((22-7*titleScale)/2),titleScale,'#ffffff');
+    const level='DEPTH '+String(floor).padStart(2,'0');
+    print(c,level,w-level.length*6-8,8,1,'#99ffff');
+    const tileScale=Math.max(1,Math.floor(cell/7)),px=player%cols,py=Math.floor(player/cols);
     for(let i=0;i<world.map.length;i++){
       const tile=world.map[i];if(tile===' ')continue;
-      const glyph=i===player?'@':cleared.has(i)?'.':tile,x=i%cols,y=Math.floor(i/cols);
+      const x=i%cols,y=Math.floor(i/cols),left=g.x+x*cell,top=g.y+y*cell;
+      const glyph=i===player?'@':cleared.has(i)?'.':tile;
       const near=Math.max(0,1-Math.hypot(x-px,y-py)/(8*api.state.appearance.torch));
-      if(tile==='#'){c.fillStyle=(x+y)%3?'#383044':'#413448';c.fillRect(g.x+x*cell,g.y+y*cell,cell-.7,cell-.7);}
-      c.fillStyle=route.includes(i)?'#a9c5ab':trail.includes(i)?'#bc926b':palette[glyph];
-      c.globalAlpha=glyph==='#'||glyph==='.'?.43+near*.57:1;
-      const mark=glyph==='.'?wornFloor[(x*17+y*31+floor)%wornFloor.length]:glyph;
-      c.fillText(mark,g.x+(x+.5)*cell,g.y+(y+.53)*cell);
+      c.globalAlpha=(glyph==='.'||glyph==='#')?.72+near*.28:1;
+      if(tile==='#'){
+        // Joined double rules imitate the line-drawing characters in a DOS ROM.
+        c.fillStyle=palette['#'];const mx=Math.round(left+cell/2),my=Math.round(top+cell/2),endX=Math.round(left+cell),endY=Math.round(top+cell);
+        for(const offset of [-tileScale,tileScale]){
+          if(world.map[i-1]==='#')c.fillRect(Math.round(left),my+offset,mx-Math.round(left)+1,tileScale);
+          if(world.map[i+1]==='#')c.fillRect(mx,my+offset,endX-mx,tileScale);
+          if(world.map[i-cols]==='#')c.fillRect(mx+offset,Math.round(top),tileScale,my-Math.round(top)+1);
+          if(world.map[i+cols]==='#')c.fillRect(mx+offset,my,tileScale,endY-my);
+        }
+      }else{
+        let ink=route.includes(i)?'#55ffff':trail.includes(i)?'#aaaa55':palette[glyph];
+        if(glyph==='@'){
+          c.fillStyle=ink;c.fillRect(Math.round(left),Math.round(top),Math.floor(cell),Math.floor(cell));ink='#121420';
+        }
+        print(c,glyph,left+(cell-5*tileScale)/2,top+(cell-7*tileScale)/2,tileScale,ink);
+      }
     }
     c.globalAlpha=1;
-    label(c,'TAP DESTINATION  /  ↑ ↓ ← →',g.x+2,g.y+rows*cell+12,'#9f929e',9);
-    label(c,'♦ '+String(crystals).padStart(2,'0')+'    '+'♥'.repeat(vitality)+'·'.repeat(3-vitality),p.x,p.y+8,palette['♦'],12);
-    label(c,api.noteName(lastMidi),p.x+p.w,p.y+8,'#c6afa3',12,'right');
-    const cx=p.x+p.w*.5,cy=p.y+p.h*.25,r=Math.min(p.w*.15,p.h*.13);
-    const icons={'.':['   .','  /|',' /_|','/___'], '!':[' ╷╷ ',' ├┤ ','╱≈≈╲','╰━━╯'],'♦':['  /\\  ',' /┼┼\\ ',' \\┼┼/ ','  \\/  '],w:[' /\\ /\\','( ◇ ◇ )',' ╲╱╲╱ ','  ░░  '],'>':['╲    ',' ╲━━ ','   ╲━','    ╲']};
-    icons[selected].forEach((row,i)=>label(c,row,cx,cy+(i-1.5)*r*.45,palette[selected],Math.max(10,r*.5),'center'));
-    label(c,instruments[selected].name,cx,p.y+p.h*.40,'#cbb7b5',10,'center');
-    Object.keys(instruments).forEach((key,i)=>{const pos=runePosition(i,p);label(c,key,pos.x,pos.y,palette[key],Math.min(24,p.w*.09),'center');if(key===selected)line(c,[[pos.x-6,pos.y+15],[pos.x+6,pos.y+15]],palette[key]);});
-    line(c,[[p.x,p.y+p.h*.58],[p.x+p.w,p.y+p.h*.58]],'#52434f');
-    label(c,'TURN LOG',p.x,p.y+p.h*.64,'#9f929e',9);
-    log.slice(0,p.h<140?2:4).forEach((e,i)=>label(c,e.glyph+'   '+e.name+'   '+e.note,p.x+4,p.y+p.h*.73+i*Math.min(16,p.h*.07),palette[e.glyph],10));
+    print(c,'TAP TO WALK / ARROW KEYS',g.x+2,g.y+rows*cell+5,1,'#aaaaaa');
+    const left=p.x+4,sw=p.w-8,top=Math.max(25,p.y);
+    const stat='♦ '+String(crystals).padStart(2,'0')+'  '+'♥'.repeat(vitality);
+    print(c,stat,left,top+2,1,'#ffff63');
+    const note=api.noteName(lastMidi).replace('♯','#').replace('♭','b');
+    print(c,note,left+sw-note.length*6,top+2,1,'#55ffff');
+    const cx=p.x+p.w*.5,cy=p.y+p.h*.255;
+    const iconScale=Math.max(1,Math.floor(Math.min(sw/22,p.h*.023)));
+    c.fillStyle='#111c36';c.fillRect(left,top+16,sw,Math.max(1,p.y+p.h*.43-top-16));
+    const sprite=portraits[selected];
+    sprite.forEach((row,y)=>[...row].forEach((pixel,x)=>{
+      if(pixel===' ')return;
+      c.fillStyle=pixel==='+'?'#ffffcc':palette[selected];
+      c.fillRect(Math.round(cx+(x-5)*iconScale),Math.round(cy+(y-sprite.length/2)*iconScale),iconScale,iconScale);
+    }));
+    const name=instruments[selected].name;
+    print(c,name,cx-name.length*3,p.y+p.h*.40-4,1,'#aaaacc');
+    Object.keys(instruments).forEach((key,i)=>{
+      const pos=runePosition(i,p),scale=Math.max(1,Math.min(3,Math.floor(p.h*.075/7)));
+      if(key===selected){c.fillStyle=palette[key];c.fillRect(pos.x-scale*4,pos.y-scale*4.5,scale*8,scale*9);}
+      print(c,key,pos.x-scale*2.5,pos.y-scale*3.5,scale,key===selected?'#101324':palette[key]);
+    });
+    const divider=p.y+p.h*.58;c.fillStyle='#183c78';c.fillRect(left,divider,sw,12);
+    print(c,'MESSAGE LOG',left+4,divider+2,1,'#ffffff');
+    log.slice(0,p.h<140?2:4).forEach((e,i)=>print(c,e.glyph+' '+e.name+' '+e.note.replace('♯','#').replace('♭','b'),left+2,divider+21+i*12,1,palette[e.glyph]));
+    if(!log.length)print(c,api.reducedMotion||Math.floor(t*1.5)%2?'> -':'>',left+2,divider+21,1,'#aaaaaa');
   }
   return {
     frame(t){clock=t;if(route.length&&!api.state.playing&&t>=nextMove){nextMove=t+.17;move(route.shift(),api.audio.now,null);}draw(t);},
