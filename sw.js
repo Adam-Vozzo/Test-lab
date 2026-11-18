@@ -1,7 +1,7 @@
 /* Only DUO's explicit static shell is cached. Account and authentication routes
    are deliberately outside this worker's fetch handling. */
 const CACHE_PREFIX = 'duo-ember-shell-';
-const CACHE_NAME = `${CACHE_PREFIX}20261118-collection-v41`;
+const CACHE_NAME = `${CACHE_PREFIX}20261118-collection-v42`;
 const BASE = new URL('./', self.location.href);
 const ASSETS = [
   'index.html', 'style.css', 'app.js', 'audio.js', 'ring.js',
@@ -18,7 +18,7 @@ const ASSETS = [
   'instruments/receiver.js', 'instruments/receiver-renderer.js', 'receiver-voice.js',
   'instruments/telemetry.js', 'instruments/undercrypt.js', 'instruments/rotor.js', 'instruments/vesicle.js', 'instruments/vesicle-renderer.js',
   'instruments/roses-overgrowth.js', 'instruments/roses-garden.js', 'instruments/roses.js', 'instruments/roses-renderer.js', 'instruments/roses-geometry.js', 'roses-voice.js',
-  'instruments/crawl.js', 'instruments/crawl-world.js', 'instruments/crawl-renderer.js', 'instruments/crawl-audio.js',
+  'instruments/crawl.js', 'instruments/crawl-world.js', 'instruments/crawl-renderer.js', 'instruments/crawl-habitat.js', 'instruments/crawl-audio.js',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png'
 ].map(path => new URL(path, BASE).href);
 const ASSET_SET = new Set(ASSETS);
